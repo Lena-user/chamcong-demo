@@ -83,3 +83,22 @@ Sếp yêu cầu ghi vào DB phải đúng và đủ, hạn chế tối đa mấ
 
 ---
 ## Kết quả và review của leader
+
+### Bổ sung (leader gửi qua tin nhắn lúc task đang chạy)
+11. **Xác thực và chia worker:**
+    - Cache xác thực trong process: `AUTH_CACHE_TTL_SECONDS=30` (đặt 0 thì tắt), `AUTH_CACHE_MAX=10000`. PATCH thì xóa entry tương ứng. Nhân viên nghỉ việc bị chặn chậm nhất sau TTL.
+    - Chia worker:
+      - `UVICORN_WORKERS` (mặc định 3).
+      - `DB_POOL_SIZE`, `DB_MAX_OVERFLOW`, `DB_POOL_TIMEOUT` lấy từ env.
+      - Worker Arq dùng pool riêng, nhỏ: `WORKER_DB_POOL_SIZE=2`, overflow 0, `ARQ_MAX_JOBS=2`.
+    - Ngân sách kết nối: khi khởi động, so `UVICORN_WORKERS × (pool + overflow) + WORKER_DB_POOL_SIZE × ARQ_MAX_JOBS + DB_RESERVED_CONNECTIONS` với `max_connections`. Vượt thì log WARNING.
+
+### Lần 1 (2026-10-26)
+- Báo cáo của agent (tóm tắt): đủ mục 1–11, 91 test pass 3 lần liền. `login_storm` 0 lỗi, RAM api 624 MiB (trước là 2043), p95 27 giây do CPU kịch 218%/200%. Agent phát hiện bug ở locustfile (`self.client.auth_header`) làm lượt steady chỉ đo login.
+- Đánh giá: Đạt.
+- Nhận xét và việc leader tự làm:
+  - Bug locustfile đã chuyển cho coder TASK-008 sửa, vì đó là phạm vi của họ.
+  - Đổi argon2 mặc định sang mức tối thiểu OWASP (argon2id, 19 MiB, t=2, p=1). Mỗi lần verify giảm từ 150,5 ms xuống 37,7 ms (đo trong container). Đã sửa ở config.py, compose và .env.example, rồi seed lại.
+  - `has_decisions_after` chỉ tính đơn **approved**, vì đơn bị từ chối không làm đổi payslip. 91 test vẫn pass.
+  - `.env` đang để `RATE_LIMIT_ENABLED=false` cho load test. Docs phải ghi rõ: lúc demo public thì bật lại.
+- Bước tiếp theo: TASK-008 đo lại.

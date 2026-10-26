@@ -1,9 +1,10 @@
-from datetime import date
+from datetime import date, datetime, timedelta
 
-from sqlalchemy import Row, func, select, update
+from sqlalchemy import Row, exists, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.modules.requests.models import Request
 from app.modules.payroll.models import PayrollPeriod, PayrollRule, Payslip
 
 _PAYSLIP_VALUE_COLUMNS = (
@@ -40,7 +41,7 @@ async def begin_calculation(session: AsyncSession, period_id: int) -> PayrollPer
     stmt = (
         update(PayrollPeriod)
         .where(PayrollPeriod.id == period_id, PayrollPeriod.status == "draft")
-        .values(status="calculating")
+        .values(status="calculating", calculating_started_at=func.now())
         .returning(PayrollPeriod)
         .execution_options(populate_existing=True)
     )
@@ -52,23 +53,54 @@ async def revert_to_draft(session: AsyncSession, period_id: int, calculated: boo
     await session.execute(
         update(PayrollPeriod)
         .where(PayrollPeriod.id == period_id, PayrollPeriod.status == "calculating")
-        .values(status="draft", calculated_at=func.now() if calculated else None)
+        .values(
+            status="draft", calculated_at=func.now() if calculated else None, calculating_started_at=None
+        )
     )
 
 
-async def lock_period(session: AsyncSession, period_id: int) -> PayrollPeriod | None:
+async def get_period_for_update(session: AsyncSession, period_id: int) -> PayrollPeriod | None:
+    """Row lock: waits for in-flight request decisions (they hold a shared lock on this row)."""
+    stmt = (
+        select(PayrollPeriod).where(PayrollPeriod.id == period_id)
+        .with_for_update().execution_options(populate_existing=True)
+    )
+    return (await session.execute(stmt)).scalar_one_or_none()
+
+
+async def has_decisions_after(session: AsyncSession, start: date, end: date, since: datetime) -> bool:
+    stmt = select(
+        exists().where(
+            Request.work_date.between(start, end),
+            Request.status == "approved",  # rejected requests do not change payslips
+            Request.decided_at > since,
+        )
+    )
+    return bool(await session.scalar(stmt))
+
+
+async def mark_locked(session: AsyncSession, period_id: int) -> PayrollPeriod:
+    stmt = (
+        update(PayrollPeriod).where(PayrollPeriod.id == period_id).values(status="locked")
+        .returning(PayrollPeriod).execution_options(populate_existing=True)
+    )
+    return (await session.execute(stmt)).scalar_one()
+
+
+async def reset_stuck_calculations(session: AsyncSession, older_than_seconds: int) -> int:
+    """calculating -> draft for periods whose job must be dead (started longer ago than the job timeout)."""
     stmt = (
         update(PayrollPeriod)
         .where(
-            PayrollPeriod.id == period_id,
-            PayrollPeriod.status == "draft",
-            PayrollPeriod.calculated_at.is_not(None),
+            PayrollPeriod.status == "calculating",
+            or_(
+                PayrollPeriod.calculating_started_at.is_(None),
+                PayrollPeriod.calculating_started_at < func.now() - timedelta(seconds=older_than_seconds),
+            ),
         )
-        .values(status="locked")
-        .returning(PayrollPeriod)
-        .execution_options(populate_existing=True)
+        .values(status="draft", calculating_started_at=None)
     )
-    return (await session.execute(stmt)).scalar_one_or_none()
+    return (await session.execute(stmt)).rowcount
 
 
 async def get_rule(session: AsyncSession, as_of: date) -> PayrollRule | None:

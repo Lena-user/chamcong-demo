@@ -1,8 +1,10 @@
+import uuid
 from datetime import date, datetime
 
 from sqlalchemy import (
     BigInteger, CheckConstraint, Date, DateTime, ForeignKey, Identity, Index, String, Text, func,
 )
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.models_base import Base
@@ -29,3 +31,5 @@ class Request(Base):
     approved_by: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("employees.id"))
     decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    # Client-chosen key that makes POST /api/requests safe to resend; NULL for requests without one.
+    idempotency_key: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), unique=True)

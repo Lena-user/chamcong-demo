@@ -3,9 +3,11 @@ from datetime import date
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core import auth_cache
 from app.core.audit import write_audit
 from app.core.deps import HR_ROLES
 from app.core.pagination import PageParams
+from app.core.retry import retry_on_conflict
 from app.core.security import create_access_token, hash_password, verify_password
 from app.modules.employees import repository
 from app.modules.employees.models import Employee, EmployeeSensitive
@@ -18,6 +20,9 @@ _DUMMY_HASH: str | None = None
 async def login(session: AsyncSession, code: str, password: str) -> tuple[str, Employee]:
     global _DUMMY_HASH
     employee = await repository.get_by_code(session, code)
+    # Read-only transaction is done: hand the connection back before the slow, memory-heavy hash,
+    # otherwise a burst of logins drains the pool while it only waits for the CPU.
+    await session.commit()
     if employee is None or employee.left_on is not None:
         if _DUMMY_HASH is None:
             _DUMMY_HASH = await hash_password("dummy-password")
@@ -34,6 +39,7 @@ async def list_employees(
     return await repository.list_page(session, department, params.offset, params.size)
 
 
+@retry_on_conflict
 async def patch_employee(
     session: AsyncSession, actor: Employee, employee_id: int, version: int, changes: dict
 ) -> Employee:
@@ -49,6 +55,7 @@ async def patch_employee(
         raise HTTPException(status.HTTP_409_CONFLICT, "Version conflict: reload and retry")
     write_audit(session, actor.id, "employee.update", "employee", employee_id)
     await session.commit()
+    auth_cache.invalidate(employee_id)
     return updated
 
 

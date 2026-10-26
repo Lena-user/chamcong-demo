@@ -24,6 +24,8 @@ class PayrollPeriod(Base):
     status: Mapped[str] = mapped_column(String(12), server_default="draft")
     # Set when a calculation finished successfully; required before the period can be locked.
     calculated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Set when the period enters 'calculating'; lets a restarted worker detect a stuck calculation.
+    calculating_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class Payslip(Base):

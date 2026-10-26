@@ -7,13 +7,86 @@ x-app-env: &app-env
   JWT_SECRET: ${JWT_SECRET}
   SEED_PASSWORD: ${SEED_PASSWORD}
   ALLOWED_HOSTS: ${ALLOWED_HOSTS}
+  JWT_EXPIRE_HOURS: ${JWT_EXPIRE_HOURS:-12}
+  TIMEZONE: ${TIMEZONE:-Asia/Ho_Chi_Minh}
+  DEFAULT_PAGE_SIZE: ${DEFAULT_PAGE_SIZE:-20}
+  MAX_PAGE_SIZE: ${MAX_PAGE_SIZE:-100}
+  PAYROLL_LOCK_KEY: ${PAYROLL_LOCK_KEY:-7300001}
+  PAYROLL_JOB_TIMEOUT: ${PAYROLL_JOB_TIMEOUT:-300}
+  STANDARD_DAILY_MINUTES: ${STANDARD_DAILY_MINUTES:-480}
+  UNPAID_BREAK_AFTER_MINUTES: ${UNPAID_BREAK_AFTER_MINUTES:-360}
+  UNPAID_BREAK_MINUTES: ${UNPAID_BREAK_MINUTES:-60}
+  NIGHT_SHIFT_CUTOFF_HOUR: ${NIGHT_SHIFT_CUTOFF_HOUR:-12}
+  ARGON2_TIME_COST: ${ARGON2_TIME_COST:-2}
+  ARGON2_MEMORY_KIB: ${ARGON2_MEMORY_KIB:-19456}
+  ARGON2_PARALLELISM: ${ARGON2_PARALLELISM:-1}
+  HASH_CONCURRENCY: ${HASH_CONCURRENCY:-2}
+  LOGIN_MAX_WAITING: ${LOGIN_MAX_WAITING:-200}
+  RETRY_AFTER_SECONDS: ${RETRY_AFTER_SECONDS:-2}
+  DB_STATEMENT_TIMEOUT_MS: ${DB_STATEMENT_TIMEOUT_MS:-5000}
+  DB_LOCK_TIMEOUT_MS: ${DB_LOCK_TIMEOUT_MS:-2000}
+  DB_IDLE_IN_TX_TIMEOUT_MS: ${DB_IDLE_IN_TX_TIMEOUT_MS:-10000}
+  DB_POOL_SIZE: ${DB_POOL_SIZE:-10}
+  DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-5}
+  DB_POOL_TIMEOUT: ${DB_POOL_TIMEOUT:-10}
+  WORKER_DB_POOL_SIZE: ${WORKER_DB_POOL_SIZE:-2}
+  ARQ_MAX_JOBS: ${ARQ_MAX_JOBS:-2}
+  UVICORN_WORKERS: ${UVICORN_WORKERS:-3}
+  DB_RESERVED_CONNECTIONS: ${DB_RESERVED_CONNECTIONS:-10}
+  ACCESS_LOG: ${ACCESS_LOG:-true}
+  RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
+  RATE_LIMIT_FAIL_OPEN: ${RATE_LIMIT_FAIL_OPEN:-true}
+  RATE_LOGIN_PER_MIN: ${RATE_LOGIN_PER_MIN:-20}
+  RATE_WRITE_PER_MIN: ${RATE_WRITE_PER_MIN:-600}
+  AUTH_CACHE_TTL_SECONDS: ${AUTH_CACHE_TTL_SECONDS:-30}
+  AUTH_CACHE_MAX: ${AUTH_CACHE_MAX:-10000}
 
 services:
   db:
     image: postgres:16
-    command: >
-      postgres -c shared_buffers=512MB -c effective_cache_size=1GB
-      -c max_connections=100
+    # WAL archiving (PITR): each finished WAL segment is gzipped into /wal_archive
+    # (temp file + mv, never overwrite). fsync/synchronous_commit/full_page_writes stay on.
+    command:
+      - postgres
+      - -c
+      - shared_buffers=512MB
+      - -c
+      - effective_cache_size=1GB
+      - -c
+      - max_connections=100
+      # Write-heavy tuning: fewer, smoother checkpoints and compressed full-page writes.
+      # Durability settings (fsync, synchronous_commit, full_page_writes) stay at defaults.
+      - -c
+      - max_wal_size=${PG_MAX_WAL_SIZE:-2GB}
+      - -c
+      - min_wal_size=512MB
+      - -c
+      - checkpoint_timeout=${PG_CHECKPOINT_TIMEOUT:-10min}
+      - -c
+      - checkpoint_completion_target=0.9
+      - -c
+      - wal_compression=on
+      - -c
+      - random_page_cost=1.1
+      # Observability for load tests: per-query stats and I/O timing.
+      - -c
+      - shared_preload_libraries=pg_stat_statements
+      - -c
+      - pg_stat_statements.track=top
+      - -c
+      - track_io_timing=on
+      - -c
+      - wal_level=replica
+      - -c
+      - archive_mode=on
+      - -c
+      - archive_timeout=${WAL_ARCHIVE_TIMEOUT:-300}
+      - -c
+      # An already-archived segment (crash between mv and ack) counts as success, so
+      # archiving never gets stuck retrying the same file.
+      - archive_command=test -f /wal_archive/%f.gz || (gzip -c %p > /wal_archive/%f.gz.tmp && mv /wal_archive/%f.gz.tmp /wal_archive/%f.gz)
+      - -c
+      - hba_file=/etc/postgresql/pg_hba.conf
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -21,6 +94,9 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
+      - ${BACKUP_DIR:-./backups}/wal:/wal_archive
+      # same rules as the image default plus replication from the compose network (pg_basebackup)
+      - ./scripts/backup/pg_hba.conf:/etc/postgresql/pg_hba.conf:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
@@ -30,8 +106,36 @@ services:
       resources:
         limits: { cpus: "1", memory: 2G }
 
+  backup:
+    image: postgres:16
+    entrypoint: ["bash", "/scripts/backup-loop.sh"]
+    command: ["loop"]
+    environment:
+      TZ: ${TIMEZONE:-Asia/Ho_Chi_Minh}
+      PGHOST: db
+      PGUSER: ${POSTGRES_USER}
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      PGDATABASE: ${POSTGRES_DB}
+      BACKUP_INTERVAL_MINUTES: ${BACKUP_INTERVAL_MINUTES:-30}
+      BASEBACKUP_INTERVAL_HOURS: ${BASEBACKUP_INTERVAL_HOURS:-24}
+      BACKUP_KEEP_DUMPS: ${BACKUP_KEEP_DUMPS:-48}
+      BACKUP_KEEP_BASE: ${BACKUP_KEEP_BASE:-3}
+    volumes:
+      - ${BACKUP_DIR:-./backups}:/backups
+      - ./scripts/backup:/scripts:ro
+    depends_on:
+      db: { condition: service_healthy }
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits: { cpus: "0.5", memory: 256M }
+
   redis:
     image: redis:7
+    # AOF so queued Arq jobs survive a redis restart
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec"]
+    volumes:
+      - redisdata:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -44,8 +148,9 @@ services:
   api:
     build: .
     environment: *app-env
+    stop_grace_period: 30s
     ports:
-      - "127.0.0.1:8000:8000"
+      - "127.0.0.1:${API_PORT:-8000}:8000"
     depends_on:
       db: { condition: service_healthy }
       redis: { condition: service_healthy }
@@ -62,6 +167,7 @@ services:
   worker:
     build: .
     command: ["arq", "app.workers.settings.WorkerSettings"]
+    stop_grace_period: 60s
     environment: *app-env
     depends_on:
       db: { condition: service_healthy }
@@ -91,3 +197,4 @@ services:
 
 volumes:
   pgdata:
+  redisdata:

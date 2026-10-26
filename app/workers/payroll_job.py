@@ -4,7 +4,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.core.db import engine
+from app.core.db import get_job_engine
 from app.modules.payroll import repository
 from app.modules.payroll import service as payroll_service
 
@@ -18,7 +18,7 @@ async def calculate_payroll(ctx, period_id: int) -> dict:
     time. The lock lives on a dedicated connection that also runs the job.
     """
     key = get_settings().payroll_lock_key
-    async with engine.connect() as conn:
+    async with get_job_engine().connect() as conn:
         await conn.execute(text("SELECT pg_advisory_lock(:k)"), {"k": key})
         await conn.commit()  # the lock is session-level, so it survives the commit
         try:

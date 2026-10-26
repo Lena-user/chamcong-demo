@@ -1,8 +1,10 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.ratelimit import limit_login, limit_writes
+
 from app.core.db import get_session
-from app.core.deps import HR_ROLES, MANAGER_ROLES, get_current_user, require_roles
+from app.core.deps import HR_ROLES, MANAGER_ROLES, get_current_employee, get_current_user, require_roles
 from app.core.pagination import Page, PageParams, page_params
 from app.modules.employees import service
 from app.modules.employees.models import Employee
@@ -15,12 +17,13 @@ router = APIRouter(prefix="/api", tags=["employees"])
 
 @router.post("/auth/login", response_model=LoginResponse)
 async def login(body: LoginRequest, session: AsyncSession = Depends(get_session)):
+    await limit_login(body.code)
     token, employee = await service.login(session, body.code, body.password)
     return LoginResponse(access_token=token, employee=EmployeeOut.model_validate(employee))
 
 
 @router.get("/me", response_model=EmployeeOut)
-async def me(user: Employee = Depends(get_current_user)):
+async def me(user: Employee = Depends(get_current_employee)):
     return user
 
 
@@ -35,7 +38,7 @@ async def list_employees(
     return Page(items=items, total=total, page=params.page, size=params.size)
 
 
-@router.patch("/employees/{employee_id}", response_model=EmployeeOut)
+@router.patch("/employees/{employee_id}", response_model=EmployeeOut, dependencies=[Depends(limit_writes)])
 async def patch_employee(
     employee_id: int,
     body: EmployeePatch,

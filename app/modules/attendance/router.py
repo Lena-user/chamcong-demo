@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_session
+from app.core.ratelimit import limit_writes
 from app.core.deps import get_current_user
 from app.core.pagination import Page, PageParams, page_params
 from app.modules.attendance import service
@@ -13,7 +14,8 @@ from app.modules.employees.models import Employee
 router = APIRouter(prefix="/api/attendance", tags=["attendance"])
 
 
-@router.post("/check", response_model=CheckResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/check", response_model=CheckResponse, status_code=status.HTTP_201_CREATED,
+             dependencies=[Depends(limit_writes)])
 async def check(
     body: CheckRequest,
     response: Response,

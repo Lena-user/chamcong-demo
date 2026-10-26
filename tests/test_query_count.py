@@ -62,3 +62,15 @@ async def test_query_budget(
         r, n = await used(method, path, who, **kw)
         assert r.status_code < 300, (path, r.status_code, r.text)
         assert n <= limit, f"{method} {path} ran {n} statements"
+
+
+async def test_auth_lookup_cached_on_second_request(client, statements, make_employee, headers_for):
+    """The identity lookup of get_current_user is served from the in-process cache within the TTL."""
+    emp = await make_employee()
+    h = headers_for(emp)
+    statements.clear()
+    await client.get("/api/attendance/me", headers=h)
+    cold = len(statements)
+    statements.clear()
+    await client.get("/api/attendance/me", headers=h)
+    assert len(statements) == cold - 1 <= 2

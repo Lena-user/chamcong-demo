@@ -4,6 +4,7 @@ const TYPES = { leave: "Nghỉ phép", adjustment: "Sửa công", ot: "OT" };
 const STATUS = { pending: "Chờ duyệt", approved: "Đã duyệt", rejected: "Từ chối" };
 const MANAGER_ROLES = ["manager", "hr", "admin"];
 let me = null;
+let pendingRequest = null;
 
 function token() { try { return sessionStorage.getItem("token"); } catch { return null; } }
 
@@ -15,23 +16,88 @@ function say(text, kind) {
 }
 
 class ApiError extends Error {
-  constructor(status, detail) { super(detail); this.status = status; }
+  constructor(status, detail, extra) { super(detail); this.status = status; Object.assign(this, extra); }
 }
 
-async function api(method, path, body) {
-  const headers = {};
+async function api(method, path, body, extraHeaders) {
+  const headers = { ...extraHeaders };
   if (body !== undefined) headers["Content-Type"] = "application/json";
   if (token()) headers["Authorization"] = "Bearer " + token();
-  const res = await fetch("/api" + path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
+  let res;
+  try {
+    res = await fetch("/api" + path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
+  } catch {
+    throw new ApiError(0, "Mất kết nối mạng", { network: true });
+  }
   let data = null;
   try { data = await res.json(); } catch { /* empty body */ }
   if (res.status === 401 && path !== "/auth/login") { logout(); throw new ApiError(401, "Phiên đăng nhập đã hết hạn"); }
   if (!res.ok) {
     const d = data && data.detail;
-    throw new ApiError(res.status, typeof d === "string" ? d : "Dữ liệu không hợp lệ");
+    const retryAfter = Number(res.headers.get("Retry-After"));
+    throw new ApiError(res.status, typeof d === "string" ? d : "Dữ liệu không hợp lệ", { retryAfter: retryAfter > 0 ? retryAfter * 1000 : 0 });
   }
   return data;
 }
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const MAX_RETRIES = 3;
+
+// Writes are retried on network errors, 502, 503 and 504. The caller passes the same
+// idempotency key (in the body or header) so a retry can never apply the change twice.
+async function apiWrite(method, path, body, extraHeaders) {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await api(method, path, body, extraHeaders);
+    } catch (e) {
+      const transient = e.network || [502, 503, 504].includes(e.status);
+      if (!transient || attempt >= MAX_RETRIES) throw e;
+      await sleep(Math.min(e.retryAfter || 500 * 2 ** attempt, 8000));
+    }
+  }
+}
+
+// Attendance outbox: a click is saved in localStorage first and removed only after the server
+// confirmed it, so a closed tab, a dead network or a 503 never loses a check-in.
+const OUTBOX_KEY = "attendance-outbox";
+let flushing = false;
+
+function outboxLoad() {
+  try { return JSON.parse(localStorage.getItem(OUTBOX_KEY) || "[]"); } catch { return []; }
+}
+function outboxSave(items) {
+  try { localStorage.setItem(OUTBOX_KEY, JSON.stringify(items)); } catch { /* storage unavailable */ }
+}
+function outboxMine() { return outboxLoad().filter((i) => me && i.employee_id === me.id); }
+function renderOutbox() {
+  const n = outboxMine().length;
+  $("outbox").hidden = n === 0;
+  $("outbox").textContent = n ? `${n} lần chấm công đang chờ gửi, sẽ tự gửi lại khi có mạng` : "";
+}
+
+async function flushOutbox() {
+  if (flushing || !me) return;
+  flushing = true;
+  let sent = null;
+  try {
+    for (const item of outboxMine()) {
+      try {
+        sent = await apiWrite("POST", "/attendance/check", { idempotency_key: item.key, source: "web" });
+      } catch (e) {
+        if (e.network || e.status === 401 || [429, 502, 503, 504].includes(e.status)) break; // keep and retry later
+        say(e.message, "error"); // a definitive refusal: keeping it would block the queue forever
+      }
+      outboxSave(outboxLoad().filter((i) => i.key !== item.key));
+      renderOutbox();
+    }
+  } finally {
+    flushing = false;
+    renderOutbox();
+  }
+  return sent;
+}
+
+window.addEventListener("online", () => { flushOutbox().then((r) => r && loadDaily()).catch(() => {}); });
 
 const fmtTime = (iso) => (iso ? new Date(iso).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" }) : "-");
 const fmtDate = (d) => d.split("-").reverse().join("/");
@@ -82,7 +148,7 @@ async function loadMyRequests() {
 
 async function decide(id, action) {
   try {
-    await api("POST", `/requests/${id}/${action}`);
+    await apiWrite("POST", `/requests/${id}/${action}`);
     say(action === "approve" ? "Đã duyệt đơn" : "Đã từ chối đơn", "ok");
   } catch (e) {
     say(e.status === 409 ? "Đơn đã được người khác xử lý" : e.message, "error");
@@ -112,6 +178,8 @@ async function enter() {
   show(true);
   $("who-name").textContent = `${me.full_name} (${me.code})`;
   $("approve-view").hidden = !MANAGER_ROLES.includes(me.role);
+  renderOutbox();
+  flushOutbox().then((r) => r && loadDaily()).catch(() => {});
   const jobs = [loadDaily(), loadMyRequests()];
   if (MANAGER_ROLES.includes(me.role)) jobs.push(loadPending());
   await Promise.all(jobs);
@@ -137,11 +205,17 @@ $("check").addEventListener("click", async () => {
   const btn = $("check");
   btn.disabled = true;
   try {
-    // One UUID per click: retrying the same click is safe (idempotent on the server).
-    const r = await api("POST", "/attendance/check", { idempotency_key: crypto.randomUUID(), source: "web" });
-    $("check-result").textContent = `Đã ghi nhận lúc ${fmtTime(r.event_time)}`;
-    say("Chấm công thành công", "ok");
-    await loadDaily();
+    // One UUID per click, saved before sending: every retry (and a later flush) reuses it.
+    outboxSave([...outboxLoad(), { key: crypto.randomUUID(), employee_id: me.id, queued_at: new Date().toISOString() }]);
+    renderOutbox();
+    const r = await flushOutbox();
+    if (r) {
+      $("check-result").textContent = `Đã ghi nhận lúc ${fmtTime(r.event_time)}`;
+      say("Chấm công thành công", "ok");
+      await loadDaily();
+    } else if (outboxMine().length) {
+      say("Chưa gửi được, đã lưu lại và sẽ tự gửi tiếp", "error");
+    }
   } catch (e) {
     say(e.message, "error");
   } finally {
@@ -154,8 +228,12 @@ $("req-form").addEventListener("submit", async (ev) => {
   const date = $("req-date").value;
   const iso = (t) => (t ? `${date}T${t}:00+07:00` : null);
   const body = { type: $("req-type").value, work_date: date, start_at: iso($("req-start").value), end_at: iso($("req-end").value), reason: $("req-reason").value };
+  // The key survives failed attempts for the same content, so pressing "send" again cannot duplicate.
+  const sig = JSON.stringify(body);
+  if (!pendingRequest || pendingRequest.sig !== sig) pendingRequest = { sig, key: crypto.randomUUID() };
   try {
-    await api("POST", "/requests", body);
+    await apiWrite("POST", "/requests", body, { "Idempotency-Key": pendingRequest.key });
+    pendingRequest = null;
     say("Đã gửi đơn", "ok");
     ev.target.reset();
     await loadMyRequests();

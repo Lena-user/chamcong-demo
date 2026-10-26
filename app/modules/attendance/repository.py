@@ -9,12 +9,18 @@ from app.modules.attendance.models import AttendanceDaily, AttendanceEvent
 
 
 async def insert_event(
-    session: AsyncSession, employee_id: int, event_time: datetime, source: str, key: uuid.UUID
+    session: AsyncSession, employee_id: int, event_time: datetime | None, source: str, key: uuid.UUID
 ) -> Row | None:
-    """NV-1: INSERT ... ON CONFLICT DO NOTHING. Returns None when the key already exists."""
+    """NV-1: INSERT ... ON CONFLICT DO NOTHING. Returns None when the key already exists.
+
+    `event_time=None` means the database clock (now()), so all app processes share one time source.
+    """
     stmt = (
         pg_insert(AttendanceEvent)
-        .values(employee_id=employee_id, event_time=event_time, source=source, idempotency_key=key)
+        .values(
+            employee_id=employee_id, event_time=func.now() if event_time is None else event_time,
+            source=source, idempotency_key=key,
+        )
         .on_conflict_do_nothing(index_elements=["idempotency_key"])
         .returning(AttendanceEvent.id, AttendanceEvent.event_time)
     )

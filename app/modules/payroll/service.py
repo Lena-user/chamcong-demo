@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import redis as redis_pool
 from app.core.audit import write_audit
+from app.core.retry import retry_on_conflict
 from app.modules.attendance import service as attendance_service
 from app.modules.employees import service as employees_service
 from app.modules.employees.models import Employee
@@ -22,6 +23,7 @@ def month_bounds(year: int, month: int) -> tuple[date, date]:
     return date(year, month, 1), date(year, month, calendar.monthrange(year, month)[1])
 
 
+@retry_on_conflict
 async def create_period(session: AsyncSession, year: int, month: int) -> PayrollPeriod:
     period = await repository.insert_period(session, year, month)
     if period is None:
@@ -43,6 +45,7 @@ async def _not_ready(session: AsyncSession, period_id: int, message: str) -> HTT
     return HTTPException(status.HTTP_409_CONFLICT, message)
 
 
+@retry_on_conflict
 async def start_calculation(session: AsyncSession, period_id: int) -> str:
     """draft -> calculating (conditional UPDATE), then queue the Arq job. Returns the job id."""
     period = await repository.begin_calculation(session, period_id)
@@ -75,10 +78,21 @@ async def job_status(job_id: str) -> dict:
     return out
 
 
+@retry_on_conflict
 async def lock_period(session: AsyncSession, period_id: int) -> PayrollPeriod:
-    period = await repository.lock_period(session, period_id)
+    """Lock a calculated period. The row is locked FOR UPDATE for the whole check so that no
+    request decision can slip in between "is the calculation still current?" and the status flip."""
+    period = await repository.get_period_for_update(session, period_id)
     if period is None:
-        raise await _not_ready(session, period_id, "Period has not been calculated yet")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Payroll period not found")
+    if period.status != "draft" or period.calculated_at is None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Period has not been calculated yet")
+    start, end = month_bounds(period.year, period.month)
+    if await repository.has_decisions_after(session, start, end, period.calculated_at):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, "Requests were decided after the last calculation: recalculate payroll first"
+        )
+    period = await repository.mark_locked(session, period_id)
     await session.commit()
     return period
 

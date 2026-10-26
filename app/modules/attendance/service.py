@@ -1,22 +1,24 @@
 import uuid
-from datetime import date, datetime, timezone
+from datetime import date, datetime
 
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.pagination import PageParams
+from app.core.retry import retry_on_conflict
 from app.modules.attendance import repository
 from app.modules.attendance.models import AttendanceDaily
 from app.modules.attendance.schemas import CheckResponse
 
 
+@retry_on_conflict
 async def check(
     session: AsyncSession, employee_id: int, key: uuid.UUID, source: str,
     now: datetime | None = None,
 ) -> tuple[CheckResponse, bool]:
     """NV-1. Returns (response, created). One INSERT, then (first time only) one daily upsert."""
-    row = await repository.insert_event(session, employee_id, now or datetime.now(timezone.utc), source, key)
+    row = await repository.insert_event(session, employee_id, now, source, key)
     if row is None:
         existing = await repository.get_event_by_key(session, key)
         if existing is None or existing.employee_id != employee_id:

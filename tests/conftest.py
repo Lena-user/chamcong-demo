@@ -2,6 +2,8 @@ import os
 
 # Point the app at the test database before any app module is imported.
 os.environ["DATABASE_URL"] = os.environ["TEST_DATABASE_URL"]
+# Tests turn the Redis rate limit on explicitly where they exercise it.
+os.environ["RATE_LIMIT_ENABLED"] = "false"
 
 import httpx  # noqa: E402
 import pytest  # noqa: E402
@@ -38,7 +40,11 @@ async def client(_schema):
 
 @pytest_asyncio.fixture(autouse=True)
 async def _clean_db(_schema):
+    from app.core import auth_cache
+
+    auth_cache.clear()  # ids restart after TRUNCATE, so cached identities would point at other people
     yield
+    auth_cache.clear()
     tables = ", ".join(f'"{t.name}"' for t in reversed(Base.metadata.sorted_tables))
     async with engine.begin() as conn:
         await conn.execute(text(f"TRUNCATE {tables} RESTART IDENTITY CASCADE"))

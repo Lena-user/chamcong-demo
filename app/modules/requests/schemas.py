@@ -34,3 +34,5 @@ class RequestOut(BaseModel):
     approved_by: int | None
     decided_at: datetime | None
     created_at: datetime
+    # True when a repeated approve/reject was answered from the earlier decision.
+    replayed: bool = False
