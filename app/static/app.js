@@ -99,7 +99,9 @@ async function flushOutbox() {
 
 window.addEventListener("online", () => { flushOutbox().then((r) => r && loadDaily()).catch(() => {}); });
 
-const fmtTime = (iso) => (iso ? new Date(iso).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" }) : "-");
+// Business time zone (TIMEZONE in .env). Shown the same way whatever the viewer's own time zone is.
+const BUSINESS_TZ = "Asia/Ho_Chi_Minh";
+const fmtTime = (iso) => (iso ? new Date(iso).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit", timeZone: BUSINESS_TZ }) : "-");
 const fmtDate = (d) => d.split("-").reverse().join("/");
 
 function el(tag, text, cls) {

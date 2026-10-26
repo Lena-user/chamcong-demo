@@ -1,6 +1,6 @@
 # Kết quả đo tải và nhật ký tìm điểm nghẽn
 
-Đo ngày 2026-10-26 trên laptop của người làm demo. Báo cáo đầy đủ của từng lượt (bảng theo endpoint, CPU/RAM, DB đang chờ gì, truy vấn tốn nhất, biểu đồ) nằm trong [`docs/ket-qua/`](ket-qua/).
+Đo rạng sáng 27/10/2026 (giờ Việt Nam) trên laptop của người làm demo. Báo cáo đầy đủ của từng lượt (bảng theo endpoint, CPU/RAM, DB đang chờ gì, truy vấn tốn nhất, biểu đồ) nằm trong [`docs/ket-qua/`](ket-qua/).
 
 ## 1. Cấu hình lúc đo
 
