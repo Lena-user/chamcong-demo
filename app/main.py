@@ -1,8 +1,11 @@
+import hashlib
 import logging
+import re
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 from starlette.middleware.trustedhost import TrustedHostMiddleware
@@ -54,16 +57,32 @@ async def lifespan(app: FastAPI):
     await engine.dispose()
 
 
+_ASSET_LINK = re.compile(r'((?:src|href)="[^":?]+\.(?:js|css))"')
+
+
 class CachedStaticFiles(StaticFiles):
-    """Static files with a 1-day cache, except index.html which is always revalidated."""
+    """JS/CSS are cached for a day (also by Cloudflare); HTML pages are never cached.
+
+    Each HTML page is served with `?v=<hash of the JS/CSS files>` on its script and style links,
+    so after a deploy browsers fetch the new assets instead of yesterday's cached copy.
+    """
+
+    def __init__(self, *, directory: str, **kwargs):
+        super().__init__(directory=directory, **kwargs)
+        digest = hashlib.sha256()
+        for asset in sorted(Path(directory).glob("*.js")) + sorted(Path(directory).glob("*.css")):
+            digest.update(asset.read_bytes())
+        self.asset_version = digest.hexdigest()[:12]
 
     async def get_response(self, path: str, scope: Scope):
+        if path in ("", ".") or path.endswith(".html"):
+            full_path, stat = self.lookup_path("index.html" if path in ("", ".") else path)
+            if stat is not None:
+                html = _ASSET_LINK.sub(rf'\1?v={self.asset_version}"', Path(full_path).read_text("utf-8"))
+                return HTMLResponse(html, headers={"Cache-Control": "no-cache"})
         response = await super().get_response(path, scope)
         if response.status_code == 200:
-            is_index = path in ("", ".", "index.html") or response.headers.get(
-                "content-type", ""
-            ).startswith("text/html")
-            response.headers["Cache-Control"] = "no-cache" if is_index else "public, max-age=86400"
+            response.headers["Cache-Control"] = "public, max-age=86400"
         return response
 
 
