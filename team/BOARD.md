@@ -14,5 +14,5 @@ Hạn: 06:00 ngày 2026-10-27. Phạm vi: dừng ở demo chịu tải, sau đó
 | TASK-008 | Load test ghi dồn dập, tự dừng khi gãy, đối soát | coder | Xong |
 | TASK-009 | Kiểm tra toàn bộ: pytest, smoke, diễn tập backup | tester | Xong |
 | TASK-010 | Đo tải thật, tìm điểm nghẽn, điền số liệu | leader | Xong |
-| TASK-011 | Push lên GitHub (public, Lena-user) | leader | Mới |
+| TASK-011 | Push lên GitHub (public, Lena-user) | leader | Xong (https://github.com/Lena-user/chamcong-demo) |
 | TASK-012 | Tra cứu kiến trúc ngân hàng và sàn giao dịch | scout | Xong |
