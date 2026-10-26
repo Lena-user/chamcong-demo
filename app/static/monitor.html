@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Giám sát trực tiếp (demo)</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; }
+  .stat { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+  .stat b { display: block; font-size: 28px; font-variant-numeric: tabular-nums; }
+  .stat span { font-size: 13px; color: var(--muted); }
+  .bars { display: flex; align-items: flex-end; gap: 2px; height: 90px; }
+  .bars div { flex: 1; min-width: 0; background: var(--accent); border-radius: 2px 2px 0 0; }
+  #feed td { font-variant-numeric: tabular-nums; }
+  #feed tr.new td { background: color-mix(in srgb, var(--ok) 18%, transparent); }
+</style>
+</head>
+<body>
+<header><h1>Giám sát trực tiếp</h1><a href="./" class="link">Về trang chấm công</a></header>
+<main>
+  <p class="muted" id="state" role="status">Đang tải…</p>
+  <div class="stats">
+    <div class="stat"><b id="rate">0</b><span>lượt chấm công/giây (5 giây gần nhất)</span></div>
+    <div class="stat"><b id="checkins">0</b><span>lượt chấm công trong 60 giây</span></div>
+    <div class="stat"><b id="employees">0</b><span>nhân viên khác nhau đã chấm trong 60 giây</span></div>
+    <div class="stat"><b id="requests">0</b><span>đơn mới trong 60 giây</span></div>
+  </div>
+  <section>
+    <h2>Lượt chấm công mỗi giây, 60 giây gần nhất</h2>
+    <div class="bars" id="bars" aria-label="Biểu đồ lượt chấm công mỗi giây"></div>
+  </section>
+  <section>
+    <h2>Lượt chấm công mới nhất</h2>
+    <table id="feed"><thead><tr><th>Giờ</th><th>Mã</th><th>Họ tên</th><th>Nguồn</th></tr></thead><tbody></tbody></table>
+  </section>
+</main>
+<script src="monitor.js"></script>
+</body>
+</html>

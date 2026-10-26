@@ -16,6 +16,7 @@ from app.core.middleware import RequestContextMiddleware, setup_logging
 from app.modules.attendance.router import router as attendance_router
 from app.modules.employees.router import router as employees_router
 from app.modules.payroll.router import router as payroll_router
+from app.modules.monitor.router import router as monitor_router
 from app.modules.requests.router import router as requests_router
 
 
@@ -75,6 +76,7 @@ app.include_router(employees_router)
 app.include_router(attendance_router)
 app.include_router(requests_router)
 app.include_router(payroll_router)
+app.include_router(monitor_router)
 
 
 @app.get("/health/live")

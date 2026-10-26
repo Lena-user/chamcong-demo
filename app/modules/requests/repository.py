@@ -77,3 +77,10 @@ async def approved_in_range(session: AsyncSession, start: date, end: date) -> li
         Request.employee_id, Request.work_date, Request.type, Request.start_at, Request.end_at
     ).where(Request.status == "approved", Request.work_date.between(start, end))
     return list((await session.execute(stmt)).all())
+
+
+async def count_created_since(session: AsyncSession, seconds: int) -> int:
+    stmt = select(func.count()).select_from(Request).where(
+        Request.created_at > func.now() - func.make_interval(0, 0, 0, 0, 0, 0, seconds)
+    )
+    return int(await session.scalar(stmt) or 0)

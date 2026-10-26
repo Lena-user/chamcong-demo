@@ -104,3 +104,7 @@ async def approved_minutes(session: AsyncSession, start: date, end: date) -> dic
             leave=cur.leave or r.type == "leave",
         )
     return out
+
+
+async def count_recent(session: AsyncSession, seconds: int) -> int:
+    return await repository.count_created_since(session, seconds)

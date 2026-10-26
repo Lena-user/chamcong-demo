@@ -132,3 +132,26 @@ async def daily_in_range(session: AsyncSession, start: date, end: date) -> list[
         AttendanceDaily.worked_minutes, AttendanceDaily.ot_minutes,
     ).where(AttendanceDaily.work_date.between(start, end))
     return list((await session.execute(stmt)).all())
+
+
+_LIVE_SQL = text("""
+    SELECT date_trunc('second', event_time) AS ts, count(*) AS events,
+           count(DISTINCT employee_id) AS employees
+    FROM attendance_events
+    WHERE event_time > now() - make_interval(secs => :seconds) AND event_time <= now()
+    GROUP BY GROUPING SETS ((date_trunc('second', event_time)), ())
+""")
+
+
+async def live_window(session: AsyncSession, seconds: int) -> list[Row]:
+    """Per-second check-in counts for the last `seconds`, plus one total row (ts IS NULL)."""
+    return list((await session.execute(_LIVE_SQL, {"seconds": seconds})).all())
+
+
+async def latest_events(session: AsyncSession, limit: int) -> list[Row]:
+    stmt = (
+        select(AttendanceEvent.id, AttendanceEvent.employee_id, AttendanceEvent.event_time, AttendanceEvent.source)
+        .order_by(AttendanceEvent.id.desc())
+        .limit(limit)
+    )
+    return list((await session.execute(stmt)).all())

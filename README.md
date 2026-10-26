@@ -42,6 +42,7 @@ cp .env.example .env                                   # rồi sửa 3 giá tr�
 docker compose up -d --build                           # api tự chạy migration khi khởi động
 docker compose exec api python -m scripts.seed         # 300 nhân viên giả, khoảng 3 tháng chấm công
 # mở http://localhost:8000 , đăng nhập mã E0001 (admin) với mật khẩu SEED_PASSWORD trong .env
+# HR/admin có thêm trang Giám sát trực tiếp: http://localhost:8000/monitor.html
 docker compose run --rm api pytest -q                  # chạy test
 ./loadtest/run.sh steady                               # đo thử, kết quả ở loadtest/results/
 ```

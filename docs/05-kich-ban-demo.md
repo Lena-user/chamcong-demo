@@ -74,6 +74,14 @@ Nói thêm về `login_storm`: "Đăng nhập là thao tác tốn CPU nhất vì
 
 Mở `report.md` hoặc `reconcile.md` của `write_storm`. Nói: "Trong kịch bản này 100 người chỉ ghi, không nghỉ. Mỗi lệnh ghi có một mã duy nhất. Sau khi chạy, em đối chiếu những lệnh mà client được báo thành công với những gì nằm trong database. Kết quả: mất bao nhiêu, trùng bao nhiêu." Con số đã đo: 46.119 lệnh ghi trong 2 phút, tất cả được xác nhận, 0 mất, 0 trùng. Nếu quá tải thì hệ thống trả 503 kèm `Retry-After`, client chờ rồi gửi lại cùng mã, nên không mất cũng không trùng.
 
+**Cho thầy thấy 100 user đang làm gì.** Trước khi chạy `write_storm`, mở `http://localhost:8000/monitor.html` (đăng nhập bằng tài khoản HR `E0002` ở trang chính trước). Trang tự làm mới mỗi giây và hiện:
+- số lượt chấm công mỗi giây;
+- số nhân viên **khác nhau** đã chấm trong 60 giây: khi chạy 100 user thì con số này lên đúng 100;
+- biểu đồ từng giây;
+- danh sách tên người vừa chấm.
+
+Nói: "Mỗi user giả lập đăng nhập bằng một tài khoản thật, E0014 trở đi, và ghi dữ liệu thật vào database. Đây là những gì database đang nhận được." Đo thật: 100 nhân viên, khoảng 216 lượt chấm công mỗi giây, hơn 12 nghìn lượt mỗi phút.
+
 Mở `app/modules/attendance/repository.py`, chỉ vào `insert_event` và câu `ON CONFLICT DO NOTHING`. Nói: "Ràng buộc UNIQUE nằm trong database. Kể cả khi 20 request cùng mã tới cùng lúc ở nhiều process, đúng một cái được ghi."
 
 ### Phút 13 đến 14. Tranh chấp và sao lưu

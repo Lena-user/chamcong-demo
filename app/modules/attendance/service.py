@@ -47,3 +47,15 @@ async def daily_totals(session: AsyncSession, start: date, end: date) -> dict[tu
     """(employee_id, work_date) -> (worked_minutes, ot_minutes), for payroll."""
     rows = await repository.daily_in_range(session, start, end)
     return {(r.employee_id, r.work_date): (r.worked_minutes, r.ot_minutes) for r in rows}
+
+
+async def live(session: AsyncSession, seconds: int, feed_size: int) -> dict:
+    """Monitor view of recent check-ins: totals, a per-second series and the newest events."""
+    rows = await repository.live_window(session, seconds)
+    total = next((r for r in rows if r.ts is None), None)
+    return {
+        "events": total.events if total else 0,
+        "employees": total.employees if total else 0,
+        "per_second": [{"ts": r.ts, "events": r.events} for r in rows if r.ts is not None],
+        "latest": await repository.latest_events(session, feed_size),
+    }

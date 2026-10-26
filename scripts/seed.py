@@ -104,7 +104,8 @@ async def main(n_employees: int, n_departments: int, days_back: int, n_pending: 
     password = os.environ["SEED_PASSWORD"]
     pw_hash = _hash(password)  # hashed once, shared by every account
     dsn = get_settings().database_url.replace("+asyncpg", "")
-    today = datetime.now(TZ).date()
+    now = datetime.now(TZ)
+    today = now.date()
     conn = await asyncpg.connect(dsn)
     counts: dict[str, int] = {}
     try:
@@ -161,6 +162,8 @@ async def main(n_employees: int, n_departments: int, days_back: int, n_pending: 
                     t_in = datetime.combine(d, s_time, TZ) + timedelta(minutes=rng.randint(-10, 10))
                     t_out = datetime.combine(d + timedelta(days=int(crosses)), e_time, TZ) + timedelta(minutes=rng.randint(0, 30))
                     for t in (t_in, t_out):
+                        if t > now:  # yesterday's night shift may not have ended yet
+                            continue
                         times.append(t)
                         event_rows.append((eid, t, rng.choice(["web", "web", "mobile"]), uuid.uuid4()))
                 for wd, v in compute_daily(times, crossing_by_date).items():

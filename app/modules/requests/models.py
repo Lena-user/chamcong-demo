@@ -18,6 +18,7 @@ class Request(Base):
         CheckConstraint("end_at IS NULL OR start_at IS NULL OR end_at >= start_at", name="ck_requests_range"),
         Index("ix_requests_status_created", "status", "created_at"),
         Index("ix_requests_emp_created", "employee_id", "created_at"),
+        Index("ix_requests_created_brin", "created_at", postgresql_using="brin"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)

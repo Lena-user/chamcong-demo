@@ -160,3 +160,12 @@ Những thứ dưới đây cần khi dữ liệu thật và tải lớn hơn. D
 - **Concurrent limiter và load shedder kiểu Stripe.** Hiện chỉ có rate limit theo thời gian. Thêm: giới hạn số request **đang xử lý** đồng thời mỗi user hoặc mỗi tenant; và load shedder biết ưu tiên: khi tải toàn hệ thống vượt ngưỡng thì loại bỏ trước các request ít quan trọng (đọc báo cáo) để giữ chỗ cho request quan trọng (chấm công, thanh toán), trả 503 kèm `Retry-After`. Mô tả trong https://stripe.com/blog/rate-limiters.
 - **Multi-AZ.** Đặt các nút ở những vùng khả dụng (availability zone) khác nhau để một vùng mất điện hay mất mạng không làm sập cả hệ thống. Kèm: sao lưu ở vùng hoặc nhà cung cấp khác, kiểm tra thường xuyên bằng diễn tập, xác định RPO và RTO theo từng mức độ quan trọng của dữ liệu.
 - **Khác:** mã hóa cột nhạy cảm (`employee_sensitive`) và sao lưu, quản lý secret ngoài `.env`, thu hồi token (danh sách token bị thu hồi hoặc token ngắn hạn kèm refresh token), giám sát và cảnh báo (p95, tỷ lệ 503, `pg_stat_archiver.failed_count`), và `pg_stat_statements` bật sẵn để tìm truy vấn chậm.
+
+## Bổ sung: trang giám sát trực tiếp và index BRIN
+
+- **Bối cảnh:** load test chạy trong Docker nên người xem không thấy 100 user ở đâu.
+- **Quyết định:** thêm `GET /api/monitor/live` (chỉ HR/admin) và trang `monitor.html`, tự làm mới mỗi giây.
+  - Mỗi lần gọi chạy 4 câu đọc: tổng và chuỗi theo giây bằng một câu `GROUPING SETS`, 20 lượt mới nhất theo khóa chính, số đơn mới, và tên nhân viên. Mọi câu đi qua service của module sở hữu bảng.
+  - Lọc theo khoảng thời gian dùng index **BRIN** trên `attendance_events(event_time)` và `requests(created_at)`. Hai bảng này chỉ thêm dòng và gần như theo thứ tự thời gian, nên BRIN rất nhỏ và gần như không tốn gì khi ghi. B-tree thì sẽ thêm một lần cập nhật index cho mỗi lượt chấm công.
+- **Đánh đổi:** mỗi người đang mở trang giám sát tạo thêm khoảng 1 request đọc mỗi giây. Chỉ nên để một vài người xem cùng lúc.
+

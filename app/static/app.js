@@ -180,6 +180,7 @@ async function enter() {
   show(true);
   $("who-name").textContent = `${me.full_name} (${me.code})`;
   $("approve-view").hidden = !MANAGER_ROLES.includes(me.role);
+  $("monitor-link").hidden = !["hr", "admin"].includes(me.role);
   renderOutbox();
   flushOutbox().then((r) => r && loadDaily()).catch(() => {});
   const jobs = [loadDaily(), loadMyRequests()];

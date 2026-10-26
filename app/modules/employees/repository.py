@@ -75,3 +75,10 @@ async def payroll_inputs(session: AsyncSession, period_start: date, period_end: 
         .order_by(Employee.id, SalaryContract.effective_from.desc())
     )
     return list((await session.execute(stmt)).all())
+
+
+async def names_by_ids(session: AsyncSession, ids: list[int]) -> dict[int, tuple[str, str]]:
+    if not ids:
+        return {}
+    rows = await session.execute(select(Employee.id, Employee.code, Employee.full_name).where(Employee.id.in_(ids)))
+    return {r.id: (r.code, r.full_name) for r in rows}

@@ -75,3 +75,8 @@ def department_ids(department: str):
 
 async def payroll_inputs(session: AsyncSession, period_start: date, period_end: date):
     return await repository.payroll_inputs(session, period_start, period_end)
+
+
+async def names_by_ids(session: AsyncSession, ids: list[int]) -> dict[int, tuple[str, str]]:
+    """id -> (code, full_name), for other modules that only hold employee ids."""
+    return await repository.names_by_ids(session, ids)

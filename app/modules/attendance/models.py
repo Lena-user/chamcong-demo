@@ -36,7 +36,12 @@ class AttendanceEvent(Base):
     """Append-only (NV-5): never UPDATE or DELETE rows from application code."""
 
     __tablename__ = "attendance_events"
-    __table_args__ = (Index("ix_attendance_events_emp_time", "employee_id", "event_time"),)
+    __table_args__ = (
+        Index("ix_attendance_events_emp_time", "employee_id", "event_time"),
+        # Append-only and time-ordered: a BRIN index is tiny and almost free on insert,
+        # and serves "last N seconds" queries for the live monitor.
+        Index("ix_attendance_events_time_brin", "event_time", postgresql_using="brin"),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
     employee_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("employees.id", ondelete="CASCADE"))
