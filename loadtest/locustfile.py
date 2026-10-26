@@ -1,26 +1,28 @@
 """Locust load test for the attendance API (contract: PROJECT.md section 6).
 
-Scenario is chosen with env SCENARIO: steady | burst | ramp | login_storm.
-Only the user classes and the LoadTestShape of that scenario are defined.
+To reuse this kit for another app: rewrite THIS file (user classes and tasks)
+and config.env; keep shapes.py, run.sh and report.py unchanged.
+
+Scenario is chosen with env SCENARIO: steady | burst | ramp | login_storm | custom.
+Load shapes and all tunables come from shapes.py (env / config.env).
 """
 import itertools
-import os
 import random
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 
-from locust import FastHttpUser, LoadTestShape, between, constant, task
+from locust import FastHttpUser, between, constant, task
 from locust.exception import StopUser
 
-SCENARIO = os.environ.get("SCENARIO", "steady")
-PASSWORD = os.environ.get("LOADTEST_PASSWORD", "")
-SCENARIOS = ("steady", "burst", "ramp", "login_storm")
-if SCENARIO not in SCENARIOS:
-    raise SystemExit(f"Unknown SCENARIO '{SCENARIO}', expected one of {SCENARIOS}")
+import shapes
 
-VN_TZ = timezone(timedelta(hours=7))
-EMPLOYEE_CODES = [f"E{n:04d}" for n in range(14, 301)]  # E0014..E0300
-MANAGER_CODES = [f"E{n:04d}" for n in range(4, 14)]  # E0004..E0013
+SCENARIO = shapes.scenario()
+PASSWORD = shapes.password()
+WAIT_MIN, WAIT_MAX = shapes.wait_range()
+MANAGER_WEIGHT = shapes.env_int("MANAGER_WEIGHT", 5)
+
+EMPLOYEE_CODES = shapes.user_codes("EMPLOYEE_RANGE", "14-300")
+MANAGER_CODES = shapes.user_codes("MANAGER_RANGE", "4-13")
 _employee_seq = itertools.count()
 _manager_seq = itertools.count()
 
@@ -62,8 +64,8 @@ class BaseUser(FastHttpUser):
 
 
 class EmployeeUser(BaseUser):
-    weight = 95
-    wait_time = between(1, 3)
+    weight = 100 - MANAGER_WEIGHT
+    wait_time = between(WAIT_MIN, WAIT_MAX)
     codes = EMPLOYEE_CODES
     seq = _employee_seq
     last_key = None
@@ -108,12 +110,13 @@ class EmployeeUser(BaseUser):
 
     @task(1)
     def create_ot(self):
-        today = datetime.now(VN_TZ).date()
+        today = shapes.now().date()
+        today_tz = shapes.tz()
         body = {
             "type": "ot",
             "work_date": today.isoformat(),
-            "start_at": datetime(today.year, today.month, today.day, 18, 0, tzinfo=VN_TZ).isoformat(),
-            "end_at": datetime(today.year, today.month, today.day, 20, 0, tzinfo=VN_TZ).isoformat(),
+            "start_at": datetime(today.year, today.month, today.day, 18, 0, tzinfo=today_tz).isoformat(),
+            "end_at": datetime(today.year, today.month, today.day, 20, 0, tzinfo=today_tz).isoformat(),
             "reason": "load test overtime",
         }
         with self.client.post(
@@ -126,8 +129,8 @@ class EmployeeUser(BaseUser):
 
 
 class ManagerUser(BaseUser):
-    weight = 5
-    wait_time = between(1, 3)
+    weight = MANAGER_WEIGHT
+    wait_time = between(WAIT_MIN, WAIT_MAX)
     codes = MANAGER_CODES
     seq = _manager_seq
 
@@ -182,35 +185,4 @@ else:
     LoginUser.abstract = True
 
 
-def _make_shape():
-    """Return a LoadTestShape subclass for the scenario (only one is ever defined)."""
-    if SCENARIO == "ramp":
-        steps = [50, 100, 150, 200, 300]
-        step_len = 60
-
-        class RampShape(LoadTestShape):
-            def tick(self):
-                run = self.get_run_time()
-                idx = int(run // step_len)
-                if idx >= len(steps):
-                    return None
-                return steps[idx], 20
-
-        return RampShape
-
-    users, rate, duration = {
-        "steady": (100, 20, 180),
-        "burst": (100, 100, 120),
-        "login_storm": (100, 100, 60),
-    }[SCENARIO]
-
-    class FixedShape(LoadTestShape):
-        def tick(self):
-            if self.get_run_time() >= duration:
-                return None
-            return users, rate
-
-    return FixedShape
-
-
-Shape = _make_shape()
+Shape = shapes.make_shape()

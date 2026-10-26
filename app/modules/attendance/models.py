@@ -2,6 +2,7 @@ import uuid
 from datetime import date, datetime, time
 
 from sqlalchemy import (
+    DDL, event,
     BigInteger, Boolean, CheckConstraint, Date, DateTime, ForeignKey, Identity, Index, Integer,
     String, Time, UniqueConstraint, func,
 )
@@ -59,3 +60,22 @@ class AttendanceDaily(Base):
     last_out: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     worked_minutes: Mapped[int] = mapped_column(Integer, server_default="0")
     ot_minutes: Mapped[int] = mapped_column(Integer, server_default="0")
+
+
+# NV-5: the database itself rejects UPDATE/DELETE on attendance_events. The same statements
+# are in migration 0002; here they are attached so metadata.create_all (tests) gets them too.
+# Note: no '%' in these strings (DDL treats it as a format marker).
+EVENTS_GUARD_FUNCTION = """
+CREATE OR REPLACE FUNCTION attendance_events_append_only() RETURNS trigger AS $$
+BEGIN
+    RAISE EXCEPTION 'attendance_events is append-only';
+END;
+$$ LANGUAGE plpgsql
+"""
+EVENTS_GUARD_TRIGGER = """
+CREATE TRIGGER trg_attendance_events_append_only
+BEFORE UPDATE OR DELETE ON attendance_events
+FOR EACH ROW EXECUTE FUNCTION attendance_events_append_only()
+"""
+event.listen(AttendanceEvent.__table__, "after_create", DDL(EVENTS_GUARD_FUNCTION))
+event.listen(AttendanceEvent.__table__, "after_create", DDL(EVENTS_GUARD_TRIGGER))

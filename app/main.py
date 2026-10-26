@@ -10,7 +10,10 @@ from starlette.types import Scope
 from app.core import redis as redis_pool
 from app.core.config import get_settings
 from app.core.db import SessionLocal, engine
+from app.modules.attendance.router import router as attendance_router
 from app.modules.employees.router import router as employees_router
+from app.modules.payroll.router import router as payroll_router
+from app.modules.requests.router import router as requests_router
 
 
 @asynccontextmanager
@@ -37,6 +40,9 @@ class CachedStaticFiles(StaticFiles):
 app = FastAPI(title="Chamcong demo", lifespan=lifespan)
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=get_settings().allowed_host_list)
 app.include_router(employees_router)
+app.include_router(attendance_router)
+app.include_router(requests_router)
+app.include_router(payroll_router)
 
 
 @app.get("/health")

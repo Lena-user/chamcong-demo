@@ -150,3 +150,7 @@ Lỗi trả `{"detail": "..."}`.
 | 2026-10-26 | Số chính đo trong mạng Docker, tunnel chỉ để tham khảo | Quick Tunnel có giới hạn và độ trễ mạng nhà |
 | 2026-10-26 | Login tách thành kịch bản riêng | argon2 trên 2 CPU là giới hạn thật, cần chỉ ra rõ |
 | 2026-10-26 | Tunnel nằm trong profile riêng | Tránh vô tình public ra internet |
+| 2026-10-26 | Thêm kịch bản ghi dồn dập (100 request ghi cùng lúc, tăng dần tới khi gãy) và đối soát với DB | Sếp yêu cầu chứng minh ghi đúng, đủ, không mất request |
+| 2026-10-26 | Mọi lệnh ghi đều idempotent, quá tải trả 503 kèm Retry-After, client gửi lại với cùng key | Hạn chế mất request |
+| 2026-10-26 | Hai lớp sao lưu: pg_dump định kỳ cùng PITR (WAL archive), có script diễn tập tự động | Sếp yêu cầu bắt buộc có cách khôi phục |
+| 2026-10-26 | Hạn chế hard-code: tham số đưa vào `.env`, `loadtest/config.env` và `payroll_rules` | Người khác dùng lại được |

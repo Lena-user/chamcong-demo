@@ -37,8 +37,8 @@ Kết quả hợp lệ được đếm riêng (không tính là lỗi, không n�
 |---|---|---|---|---|
 | api | 204% | 200% | 360 MiB | 2048 MiB |
 | db | 42% | 100% | 1060 MiB | 2048 MiB |
-| worker | 2% | 100% | 90 MiB | 512 MiB |
 | redis | 8% | 50% | 12 MiB | 256 MiB |
+| worker | 2% | 100% | 90 MiB | 512 MiB |
 
 **Điểm nghẽn:** **api** chạm giới hạn CPU (204% / 200%)
 

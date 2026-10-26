@@ -1,15 +1,17 @@
 from arq.connections import RedisSettings
 
 from app.core.config import get_settings
+from app.workers.payroll_job import calculate_payroll
 
 
 async def ping(ctx) -> str:
-    """Placeholder job: Arq refuses to start with no registered function."""
+    """Health-check job."""
     return "pong"
 
 
 class WorkerSettings:
-    """Arq worker. Real jobs (payroll) are added by a later task."""
+    """Arq worker."""
 
-    functions = [ping]
+    functions = [ping, calculate_payroll]
     redis_settings = RedisSettings.from_dsn(get_settings().redis_url)
+    job_timeout = get_settings().payroll_job_timeout

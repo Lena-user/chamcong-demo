@@ -5,6 +5,7 @@ Usage:
     report.py --summary      # results/SUMMARY.md, latest run of each scenario
 """
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -15,20 +16,18 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 import pandas as pd  # noqa: E402
 
+# Defaults; the effective values come from env, then meta.json["config"] (see apply_config).
 TARGET_P95_MS = 500
 TARGET_ERR_PCT = 1.0
 BOTTLENECK_RATIO = 0.9
-STEP_SECONDS = 60  # ramp step length, must match locustfile.py
+STEP_SECONDS = 60  # ramp step length (RAMP_STEP_SECONDS)
 STEP_SETTLE_SECONDS = 15  # ignore the start of each step while users spawn
-SERVICES = ["api", "db", "worker", "redis"]
-DEFAULT_LIMITS = {  # PROJECT.md section 8, used if meta.json has no limits
-    "api": (2.0, 2 * 1024**3), "db": (1.0, 2 * 1024**3),
-    "worker": (1.0, 512 * 1024**2), "redis": (0.5, 256 * 1024**2),
-}
 UNITS = {"b": 1, "kb": 1000, "kib": 1024, "mb": 1000**2, "mib": 1024**2,
          "gb": 1000**3, "gib": 1024**3}
-SCENARIO_VI = {"steady": "Ổn định", "burst": "Dồn dập", "ramp": "Tăng dần", "login_storm": "Bão đăng nhập"}
-COLORS = {"api": "#1f77b4", "db": "#d62728", "worker": "#2ca02c", "redis": "#ff7f0e"}
+SCENARIO_VI = {"steady": "Ổn định", "burst": "Dồn dập", "ramp": "Tăng dần", "login_storm": "Bão đăng nhập",
+               "custom": "Tùy chỉnh"}
+# Assigned to services in order of first appearance (sorted by name), cycling if needed.
+PALETTE = ["#1f77b4", "#d62728", "#2ca02c", "#ff7f0e", "#9467bd", "#8c564b", "#e377c2", "#17becf"]
 
 plt.rcParams.update({"font.family": "DejaVu Sans", "axes.grid": True, "grid.alpha": 0.3,
                      "axes.spines.top": False, "axes.spines.right": False})
@@ -57,22 +56,57 @@ def load_history(d):
     return h.reset_index(drop=True), float(h["Timestamp"].iloc[0])
 
 
-def load_docker(d, t0):
+def apply_config(meta):
+    """Set thresholds from env, else from the config used for the run (meta.json), else defaults."""
+    global TARGET_P95_MS, TARGET_ERR_PCT, BOTTLENECK_RATIO, STEP_SECONDS, STEP_SETTLE_SECONDS
+    cfg = meta.get("config", {})
+
+    def get(name, default):
+        return float(os.environ.get(name) or cfg.get(name) or default)
+
+    TARGET_P95_MS = get("TARGET_P95_MS", 500)
+    TARGET_ERR_PCT = get("TARGET_ERR_PCT", 1)
+    BOTTLENECK_RATIO = get("BOTTLENECK_PCT", 90) / 100
+    STEP_SECONDS = get("RAMP_STEP_SECONDS", 60)
+    STEP_SETTLE_SECONDS = min(15, STEP_SECONDS / 3)
+
+
+def service_name(container, project, common_prefix):
+    """Container name -> service: drop the '<project>-' prefix and the '-<n>' suffix."""
+    name = re.sub(r"[-_]\d+$", "", container)
+    for prefix in (f"{project}-" if project else "", common_prefix):
+        if prefix and name.startswith(prefix) and len(name) > len(prefix):
+            return name[len(prefix):]
+    return name
+
+
+def common_prefix(names):
+    """Longest shared prefix ending at a '-' (compose project guess when meta has none)."""
+    if len(names) < 2:
+        return ""
+    pre = os.path.commonprefix(list(names))
+    return pre[:pre.rfind("-") + 1]
+
+
+def load_docker(d, t0, meta=None):
     path = d / "docker_stats.jsonl"
-    rows = []
+    project = (meta or {}).get("project", "")
+    records = []
     if path.exists():
         for line in path.read_text().splitlines():
             try:
                 j = json.loads(line)
-            except ValueError:
+                records.append((j["Name"], j))
+            except (ValueError, KeyError):
                 continue
-            m = re.search(r"(?:^|[-_])(api|db|worker|redis)(?:[-_]\d+)?$", j.get("Name", ""))
-            if not m:
-                continue
-            used, _, limit = j.get("MemUsage", "").partition("/")
-            rows.append({"t": float(j["ts"]) - t0, "service": m.group(1),
-                         "cpu": float(j.get("CPUPerc", "0").strip("%") or 0),
-                         "mem": parse_size(used), "mem_limit": parse_size(limit)})
+    names = {re.sub(r"[-_]\d+$", "", n) for n, _ in records}
+    prefix = "" if project else common_prefix(sorted(names))
+    rows = []
+    for name, j in records:
+        used, _, limit = j.get("MemUsage", "").partition("/")
+        rows.append({"t": float(j["ts"]) - t0, "service": service_name(name, project, prefix),
+                     "cpu": float(j.get("CPUPerc", "0").strip("%") or 0),
+                     "mem": parse_size(used), "mem_limit": parse_size(limit)})
     return pd.DataFrame(rows, columns=["t", "service", "cpu", "mem", "mem_limit"])
 
 
@@ -95,21 +129,27 @@ def totals(stats):
             "p95": float(agg["95%"]), "p99": float(agg["99%"])}
 
 
+def services_of(docker):
+    return sorted(docker["service"].unique())
+
+
+def service_colors(docker):
+    return {svc: PALETTE[i % len(PALETTE)] for i, svc in enumerate(services_of(docker))}
+
+
 def container_peaks(docker, meta):
+    """Per service: peak CPU/RAM and limits. A missing limit means unlimited:
+    CPU is then measured against all host CPUs, RAM against the limit docker reports."""
     limits = meta.get("limits", {})
+    host_cpus = meta.get("host_cpus") or os.cpu_count() or 1
     out = {}
-    for svc in SERVICES:
+    for svc in services_of(docker):
         sub = docker[docker["service"] == svc]
-        if sub.empty:
-            continue
-        cpu_lim, mem_lim = DEFAULT_LIMITS[svc]
         lim = limits.get(svc, {})
-        if lim.get("cpu_limit"):
-            cpu_lim = lim["cpu_limit"]
-        if lim.get("mem_limit_bytes"):
-            mem_lim = lim["mem_limit_bytes"]
-        out[svc] = {"cpu": sub["cpu"].max(), "cpu_limit": cpu_lim * 100,
-                    "mem": sub["mem"].max(), "mem_limit": mem_lim}
+        cpu_lim, mem_lim = lim.get("cpu_limit"), lim.get("mem_limit_bytes")
+        out[svc] = {"cpu": sub["cpu"].max(), "mem": sub["mem"].max(),
+                    "cpu_limit": (cpu_lim or host_cpus) * 100, "cpu_unlimited": not cpu_lim,
+                    "mem_limit": mem_lim or sub["mem_limit"].max(), "mem_unlimited": not mem_lim}
     return out
 
 
@@ -117,8 +157,9 @@ def bottlenecks(peaks):
     found = []
     for svc, p in peaks.items():
         if p["cpu"] >= BOTTLENECK_RATIO * p["cpu_limit"]:
-            found.append(f"**{svc}** chạm giới hạn CPU ({p['cpu']:.0f}% / {p['cpu_limit']:.0f}%)")
-        if p["mem"] >= BOTTLENECK_RATIO * p["mem_limit"]:
+            what = "chạm số CPU của máy" if p["cpu_unlimited"] else "chạm giới hạn CPU"
+            found.append(f"**{svc}** {what} ({p['cpu']:.0f}% / {p['cpu_limit']:.0f}%)")
+        if not p["mem_unlimited"] and p["mem"] >= BOTTLENECK_RATIO * p["mem_limit"]:
             found.append(f"**{svc}** gần hết RAM ({p['mem'] / 2**20:.0f} / {p['mem_limit'] / 2**20:.0f} MiB)")
     return found
 
@@ -149,7 +190,7 @@ def chart_latency(hist, path):
     fig, ax = plt.subplots(figsize=(12, 6))
     ax.plot(hist["t"], hist["50%"], label="p50", color="#2ca02c", lw=2)
     ax.plot(hist["t"], hist["95%"], label="p95", color="#d62728", lw=2)
-    ax.axhline(TARGET_P95_MS, color="#7f7f7f", ls="--", label=f"Mục tiêu p95 ({TARGET_P95_MS} ms)")
+    ax.axhline(TARGET_P95_MS, color="#7f7f7f", ls="--", label=f"Mục tiêu p95 ({TARGET_P95_MS:g} ms)")
     ax.set_xlabel("Thời gian (giây)")
     ax.set_ylabel("Thời gian phản hồi (ms)")
     ax2 = ax.twinx()
@@ -178,16 +219,19 @@ def chart_cpu(docker, peaks, path):
     fig, ax = plt.subplots(figsize=(12, 6))
     if docker.empty:
         ax.text(0.5, 0.5, "Không có dữ liệu docker stats", ha="center", va="center", transform=ax.transAxes)
-    for svc in SERVICES:
+    colors = service_colors(docker)
+    for svc in services_of(docker):
         sub = docker[docker["service"] == svc]
-        if not sub.empty:
-            ax.plot(sub["t"], sub["cpu"], label=svc, color=COLORS[svc], lw=2)
-    if "api" in peaks:
-        ax.axhline(peaks["api"]["cpu_limit"], color=COLORS["api"], ls=":", alpha=0.7,
-                   label=f"Giới hạn api ({peaks['api']['cpu_limit']:.0f}%)")
+        ax.plot(sub["t"], sub["cpu"], label=svc, color=colors[svc], lw=2)
+    if peaks:
+        top = max(peaks, key=lambda k: peaks[k]["cpu"])  # service with the highest CPU
+        lim = peaks[top]
+        kind = "số CPU máy" if lim["cpu_unlimited"] else "giới hạn"
+        ax.axhline(lim["cpu_limit"], color=colors[top], ls=":", alpha=0.7,
+                   label=f"{kind.capitalize()} {top} ({lim['cpu_limit']:.0f}%)")
     ax.set_xlabel("Thời gian (giây)")
     ax.set_ylabel("CPU (%, 100% = 1 core)")
-    ax.set_title("CPU của từng container (200% = kịch 2 CPU)")
+    ax.set_title("CPU của từng container (đường chấm = giới hạn CPU của container cao nhất)")
     ax.legend(loc="upper left")
     save(fig, path)
 
@@ -203,7 +247,8 @@ def md_table(header, rows):
 def analyse(d):
     stats, meta = load_stats(d), load_meta(d)
     hist, t0 = load_history(d)
-    docker = load_docker(d, t0)
+    apply_config(meta)
+    docker = load_docker(d, t0, meta)
     peaks = container_peaks(docker, meta)
     return stats, meta, hist, docker, peaks, totals(stats)
 
@@ -223,7 +268,7 @@ def report_one(d):
     lines.append(f"- Tổng số request: {n_vi}, trung bình {tot['rps']:.1f} request/giây")
     lines += ["", "## Mục tiêu so với thực tế", ""]
     lines.append(md_table(["Chỉ số", "Mục tiêu", "Thực tế", "Kết quả"], [
-        ["p95 thời gian phản hồi", f"< {TARGET_P95_MS} ms", f"{tot['p95']:.0f} ms",
+        ["p95 thời gian phản hồi", f"< {TARGET_P95_MS:g} ms", f"{tot['p95']:.0f} ms",
          "ĐẠT" if tot["p95"] < TARGET_P95_MS else "KHÔNG ĐẠT"],
         ["Tỷ lệ lỗi", f"< {TARGET_ERR_PCT:g}%", f"{tot['err']:.2f}%",
          "ĐẠT" if tot["err"] < TARGET_ERR_PCT else "KHÔNG ĐẠT"],
@@ -245,8 +290,11 @@ def report_one(d):
     lines += ["", "## CPU và RAM cao nhất", ""]
     if peaks:
         lines.append(md_table(["Container", "CPU cao nhất", "Giới hạn CPU", "RAM cao nhất", "Giới hạn RAM"], [
-            [svc, f"{p['cpu']:.0f}%", f"{p['cpu_limit']:.0f}%", f"{p['mem'] / 2**20:.0f} MiB",
-             f"{p['mem_limit'] / 2**20:.0f} MiB"] for svc, p in peaks.items()]))
+            [svc, f"{p['cpu']:.0f}%",
+             f"không giới hạn (máy có {p['cpu_limit'] / 100:g} CPU)" if p["cpu_unlimited"] else f"{p['cpu_limit']:.0f}%",
+             f"{p['mem'] / 2**20:.0f} MiB",
+             "không giới hạn" if p["mem_unlimited"] else f"{p['mem_limit'] / 2**20:.0f} MiB"]
+            for svc, p in peaks.items()]))
     else:
         lines.append("Không có dữ liệu docker stats.")
     found = bottlenecks(peaks)
@@ -284,7 +332,7 @@ def report_summary(results):
         if sc == "ramp":
             _, broken = ramp_steps(hist)
             extra = f"gãy ở {broken['users']} user" if broken else "chưa gãy"
-        note = "; ".join(x for x in (", ".join(re.findall(r"\*\*(\w+)\*\*", "; ".join(found))), extra) if x)
+        note = "; ".join(x for x in (", ".join(re.findall(r"\*\*([\w.-]+)\*\*", "; ".join(found))), extra) if x)
         rows.append([sc, d.name, meta.get("host", "?"), f"{tot['rps']:.1f}", f"{tot['p95']:.0f} ms",
                      f"{tot['err']:.2f}%", verdict(tot["p95"], tot["err"]), note or "-"])
     lines = ["# Tổng hợp load test", "", "Mỗi kịch bản lấy lần chạy mới nhất.", ""]

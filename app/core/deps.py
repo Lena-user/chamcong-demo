@@ -36,3 +36,7 @@ def require_roles(*roles: str):
         return user
 
     return checker
+
+
+MANAGER_ROLES = ("manager", "hr", "admin")
+HR_ROLES = ("hr", "admin")
