@@ -9,9 +9,9 @@ Hạn: 06:00 ngày 2026-10-27. Phạm vi: dừng ở demo chịu tải, sau đó
 | TASK-003 | Module nghiệp vụ, test đồng thời, frontend, bỏ hard-code | coder | Xong |
 | TASK-004 | Bộ load test dùng chung, bỏ hard-code | coder | Xong |
 | TASK-005 | Ghi an toàn, chống mất request, quá tải trả 503 | coder | Đang làm |
-| TASK-006 | Sao lưu và khôi phục (dump + PITR), diễn tập tự động | coder | Đang làm |
+| TASK-006 | Sao lưu và khôi phục (dump + PITR), diễn tập tự động | coder | Xong |
 | TASK-007 | README và docs hướng dẫn dùng chung | coder + leader | Mới |
-| TASK-008 | Load test ghi dồn dập, tự dừng khi gãy, đối soát | coder | Mới (chờ 006) |
+| TASK-008 | Load test ghi dồn dập, tự dừng khi gãy, đối soát | coder | Đang làm |
 | TASK-009 | Kiểm tra toàn bộ: pytest, smoke, diễn tập backup | tester | Mới |
 | TASK-010 | Đo tải thật, tìm điểm nghẽn, điền số liệu | leader | Mới |
 | TASK-011 | Push lên GitHub (public, Lena-user) | leader | Mới |

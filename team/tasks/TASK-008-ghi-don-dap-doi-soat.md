@@ -1,7 +1,7 @@
 # TASK-008: Load test ghi dồn dập, tự dừng khi gãy, đối soát không mất request
 
 - **Giao cho:** coder
-- **Trạng thái:** Mới
+- **Trạng thái:** Đang làm
 - **Liên quan:** TASK-004 (bộ load test dùng chung), TASK-005 (idempotency cho `POST /api/requests` qua header `Idempotency-Key`)
 
 ## Mục tiêu

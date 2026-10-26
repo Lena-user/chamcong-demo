@@ -33,6 +33,7 @@ Sếp yêu cầu ghi vào DB phải đúng và đủ, hạn chế tối đa mấ
    - Job tính lương có `max_tries=3`. Thêm `job_timeout` lấy từ Settings.
    - Khi worker khởi động, đưa các kỳ kẹt ở `calculating` lâu hơn `job_timeout` về `draft`. Cần thêm cột thời điểm bắt đầu tính (migration).
    - Job phải idempotent: chạy lại không nhân đôi payslip.
+5b. **Khóa kỳ an toàn:** `lock` trả 409 nếu có đơn thuộc kỳ được quyết định sau `calculated_at`, kèm thông báo "cần tính lại lương". Kiểm tra trong cùng transaction, với dòng kỳ đã khóa `FOR UPDATE`. Có test cho trường hợp này.
 6. **Tắt êm:** CMD uvicorn thêm `--timeout-graceful-shutdown 25`.
 7. **Frontend:**
    - Mọi lệnh ghi (chấm công, tạo đơn, duyệt đơn) retry tối đa 3 lần với backoff khi gặp lỗi mạng, 502, 503 hoặc 504. Mỗi lần retry giữ **cùng** idempotency key.
@@ -77,7 +78,7 @@ Sếp yêu cầu ghi vào DB phải đúng và đủ, hạn chế tối đa mấ
 
 ## Không được đụng
 - `loadtest/`, `scripts/backup/`, `team/`, `docs/`.
-- Trong `docker-compose.yml` chỉ được sửa CMD hoặc command của api nếu cần. Phần còn lại TASK-006 đang sửa.
+- Trong `docker-compose.yml` chỉ được thêm biến vào khối `x-app-env` (theo kiểu `${VAR:-default}`) và sửa command của api nếu cần. Phần còn lại TASK-006 đang sửa, nên sửa bằng Edit nhỏ và đọc lại file trước mỗi lần sửa.
 - Không chạy `pkill -f`. Không commit, không push, không bật profile `tunnel`.
 
 ---

@@ -70,3 +70,14 @@ Kèm script khôi phục và **script diễn tập** tự giả lập sự cố,
 
 ---
 ## Kết quả và review của leader
+
+### Lần 1 (2026-10-26)
+- Báo cáo của agent (tóm tắt): đã làm hai lớp dump + PITR, đủ 6 script. `drill.sh` PASS mọi bước (PITR về T: có A, không có B, số dòng khớp; vòng dump cũng khớp). Shellcheck sạch.
+- Đánh giá: Đạt sau khi leader sửa 1 lỗi.
+- Nhận xét:
+  - Áp lên stack chính thì `backup-loop.sh` crash liên tục: thư mục `dump` rỗng làm `newest_epoch` trả chuỗi rỗng, nên phép tính `$((now - ))` lỗi cú pháp. Drill không bắt được lỗi này vì drill gọi lệnh dump/base trực tiếp chứ không chạy vòng loop. Leader đã sửa để hàm trả về 0.
+  - Leader sửa thêm `archive_command`: segment đã lưu rồi thì coi là thành công, tránh kẹt retry mãi một file sau khi crash.
+  - Leader thêm tinh chỉnh tải ghi (`max_wal_size`, checkpoint, `wal_compression`) và `pg_stat_statements`.
+  - Đã áp lên stack chính: có base backup, dump 1,8 MB, WAL đã archive.
+  - Thêm `pg_hba.conf` và `.dockerignore`, hợp lý.
+- Bước tiếp theo: tester chạy lại drill ở TASK-009.
