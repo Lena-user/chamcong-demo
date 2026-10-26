@@ -57,12 +57,25 @@ def read_db(path):
     return keys, unverifiable
 
 
+def read_owners(path):
+    """(kind, key) -> owner, when the DB export has an optional `owner` column (e.g. employee code)."""
+    path = Path(path)
+    if not path.exists():
+        return {}
+    with open(path, newline="", encoding="utf-8") as f:
+        return {(r["kind"], r["key"]): r["owner"] for r in csv.DictReader(f)
+                if r.get("owner") and r["key"] and not r["kind"].startswith("meta:")}
+
+
 def is_ok(status):
     return 200 <= int(status) < 300
 
 
-def analyse(writes, db, unverifiable):
-    """Compare confirmed / failed writes with the DB keys. `writes` has one row per key."""
+def analyse(writes, db, unverifiable, owners=None):
+    """Compare confirmed / failed writes with the DB keys. `writes` has one row per key.
+
+    With `owners`, a confirmed write whose DB row belongs to someone other than the user who sent
+    it (the `code` in writes.jsonl) counts as written to the wrong person."""
     out = {"total": len(writes), "by_kind": dict(Counter(w["kind"] for w in writes)),
            "unverifiable_kinds": sorted(unverifiable)}
     confirmed = [w for w in writes if is_ok(w["final_status"])]
@@ -78,6 +91,10 @@ def analyse(writes, db, unverifiable):
     known = {(w["kind"], w["key"]) for w in writes}
     out["db_unknown"] = len([k for k in db if k not in known and k[0] not in unverifiable])
     out["retried"] = len([w for w in writes if w.get("attempts", 1) > 1])
+    owners = owners or {}
+    checked = [w for w in verif if (w["kind"], w["key"]) in owners and w.get("code")]
+    out["owner_checked"] = len(checked)
+    out["wrong_owner"] = [w for w in checked if owners[(w["kind"], w["key"])] != w["code"]]
     return out
 
 
@@ -104,6 +121,8 @@ def render(first, second=None, retry_rows=None):
              f"| **Đã xác nhận nhưng không có trong DB** | {len(first['lost'])} | "
              f"{bold_if(not first['lost'])} |",
              f"| Key bị trùng trong DB | {len(first['duplicates'])} | {bold_if(not first['duplicates'])} |",
+             *([f"| Ghi nhầm người (trong {first['owner_checked']} lệnh có kiểm người gửi) | "
+                f"{len(first['wrong_owner'])} | {bold_if(not first['wrong_owner'])} |"] if first["owner_checked"] else []),
              f"| Lỗi sau khi hết retry | {first['failed']} | |",
              f"| Trong số lỗi, thực ra đã vào DB (commit nhưng client không nhận được trả lời) | "
              f"{len(first['failed_in_db'])} | |",
@@ -146,14 +165,14 @@ def reconcile(d):
     d = Path(d)
     writes = read_jsonl(d / "writes.jsonl")
     db, unverifiable = read_db(d / "db_keys.csv")
-    first = analyse(writes, db, unverifiable)
+    first = analyse(writes, db, unverifiable, read_owners(d / "db_keys.csv"))
     second = retry_rows = None
     retry_rows = read_jsonl(d / "writes_retry.jsonl") or None
     if retry_rows is not None and (d / "db_keys_after_retry.csv").exists():
         db2, unverifiable2 = read_db(d / "db_keys_after_retry.csv")
         second = analyse(merge_retry(writes, retry_rows), db2, unverifiable2)
     write_report(d, render(first, second, retry_rows))
-    bad = len(first["lost"]) + len(first["duplicates"])
+    bad = len(first["lost"]) + len(first["duplicates"]) + len(first["wrong_owner"])
     if second is not None:
         bad += len(second["lost"]) + len(second["duplicates"])
     print(f"Reconcile: {first['total']} writes, {first['confirmed']} confirmed, "

@@ -182,6 +182,11 @@ Mỗi endpoint cần một `name=` riêng để biết endpoint nào chậm.
 
 Muốn chứng minh "không mất lệnh ghi": mỗi lệnh ghi trong locustfile cần một khóa duy nhất (UUID) và được ghi vào `writes.jsonl` (xem `WriterUser._write` trong `loadtest/locustfile.py`). Sau đó viết lại `loadtest/app_reconcile.sql` để liệt kê các khóa nằm trong DB từ thời điểm `:since` (cột `kind,key,id,created_at`). `reconcile.py` và `run.sh` không cần sửa. Với loại ghi nào mà bảng chưa có cột khóa, thêm dòng `meta:<kind>_has_key` giá trị `false` như file mẫu, để báo cáo ghi "không kiểm chứng được" thay vì "mất".
 
+Muốn chứng minh thêm "ghi đúng":
+- Cho `app_reconcile.sql` xuất thêm cột `owner`, là người sở hữu dòng, ví dụ mã user. Ghi `code` của người gửi vào `writes.jsonl`. Như vậy đối soát kiểm được cả việc ghi nhầm người.
+- Viết một script chỉ đọc kiểm các bất biến của dự án mới: bảng tổng hợp khớp với dữ liệu gốc, luật trạng thái, bảng chỉ-thêm không bị sửa. Trỏ `POST_CHECK_CMD` trong `loadtest/config.env` vào script đó. Mẫu: `scripts/check_integrity.py`.
+- Viết thêm một test cố ý làm hỏng dữ liệu, để chắc script bắt được lỗi thật.
+
 ## 3. Thứ tự đo
 
 Mỗi bước trả lời một câu hỏi và quyết định bước sau:

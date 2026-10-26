@@ -108,3 +108,7 @@ async def approved_minutes(session: AsyncSession, start: date, end: date) -> dic
 
 async def count_recent(session: AsyncSession, seconds: int) -> int:
     return await repository.count_created_since(session, seconds)
+
+
+async def check_rules(session: AsyncSession):
+    return await repository.check_rules(session)

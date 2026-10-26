@@ -1,7 +1,7 @@
 import uuid
 from datetime import date
 
-from sqlalchemy import Row, Select, func, insert, select, update
+from sqlalchemy import Row, Select, func, insert, select, text, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -84,3 +84,19 @@ async def count_created_since(session: AsyncSession, seconds: int) -> int:
         Request.created_at > func.now() - func.make_interval(0, 0, 0, 0, 0, 0, seconds)
     )
     return int(await session.scalar(stmt) or 0)
+
+
+async def check_rules(session: AsyncSession) -> Row:
+    """Request rows that break the approval rules (each count should be 0)."""
+    return (await session.execute(text("""
+        SELECT count(*) AS total,
+          count(*) FILTER (WHERE status = 'pending' AND (approved_by IS NOT NULL OR decided_at IS NOT NULL))
+            AS pending_with_decision,
+          count(*) FILTER (WHERE status <> 'pending' AND (approved_by IS NULL OR decided_at IS NULL))
+            AS decided_without_actor,
+          count(*) FILTER (WHERE approved_by = employee_id) AS self_decided,
+          count(*) FILTER (WHERE decided_at < created_at) AS decided_before_created,
+          (SELECT count(*) FROM (SELECT 1 FROM requests WHERE idempotency_key IS NOT NULL
+                                 GROUP BY idempotency_key HAVING count(*) > 1) d) AS duplicate_keys
+        FROM requests
+    """))).one()

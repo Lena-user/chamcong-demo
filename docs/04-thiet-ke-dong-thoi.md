@@ -157,6 +157,19 @@ Mục tiêu: một lệnh ghi mà client đã gửi thì hoặc được ghi đ�
 5. **Duyệt đơn idempotent.** Xem NV-3: gửi lại cùng quyết định bởi cùng người nhận 200 chứ không 409, nên timeout giữa chừng không làm client hiểu nhầm là thất bại.
 6. **Đối soát sau load test.** Mỗi lệnh ghi trong `write_storm` và `write_ramp` có một key và được ghi vào `writes.jsonl`. Sau khi chạy, `reconcile.py` so với các key trong DB (`app_reconcile.sql`): lệnh được báo thành công mà không có trong DB là **mất**, key xuất hiện hai lần là **trùng**, cả hai phải bằng 0. Lệnh cuối cùng vẫn lỗi thì được gửi lại với cùng key và kiểm tra lần nữa. Chi tiết ở `docs/02-load-test.md`.
 
+## Kiểm tra toàn vẹn sau khi ghi
+
+Đối soát chỉ trả lời "lệnh đã báo thành công có nằm trong DB không". `scripts/check_integrity.py` trả lời câu tiếp theo: "thứ nằm trong DB có đúng không". Script chỉ đọc, và trả mã 1 nếu có vi phạm.
+
+| Kiểm tra | Vì sao cần |
+|---|---|
+| Tính lại `attendance_daily` từ `attendance_events` rồi so từng dòng: giờ vào, giờ ra, số phút, OT, thiếu hoặc thừa dòng | Bảng tổng hợp bị cập nhật đồng thời. Nếu upsert sai thì đây là nơi sai đầu tiên |
+| Không trùng `idempotency_key`, không có giờ chấm ở tương lai | Chống ghi đôi, và đồng hồ DB là nguồn giờ duy nhất |
+| `n_tup_upd + n_tup_del` của `attendance_events` bằng 0, trigger chặn sửa/xóa đang bật | Chứng minh NV-5 bằng thống kê của chính Postgres |
+| Luật của đơn: đơn chờ duyệt không có người duyệt; đơn đã quyết định có người và thời điểm; không ai tự duyệt; không quyết định trước lúc tạo; không trùng key | Các luật này mà sai thì ràng buộc chưa đủ chặt |
+
+`tests/test_integrity.py` cố ý làm hỏng một dòng và chứng minh script bắt được, nên script không phải "lúc nào cũng báo ĐẠT". Lúc chạy thật, script chạy tự động sau mỗi lượt load test (`POST_CHECK_CMD`).
+
 ## Mang sang dự án khác
 
 Các mẫu dưới đây không phụ thuộc chấm công hay lương. Mỗi mẫu gồm khi nào dùng, mẫu SQL, và lỗi hay gặp.

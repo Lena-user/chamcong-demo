@@ -170,6 +170,7 @@ Thử lại như client thật (kịch bản ghi):
 | `RETRY_AFTER_CAP_S` | `10` | Tối đa bao nhiêu giây user chịu nghe theo `Retry-After`. |
 | `REQUEST_TIMEOUT_S` | `30` | Timeout mỗi request (giây). |
 | `RECONCILE_RETRY` | `1` | Sau kịch bản ghi, gửi lại một lần các key cuối cùng vẫn lỗi rồi kiểm tra DB lần nữa (`1` là có). |
+| `POST_CHECK_CMD` | `docker compose exec -T api python -m scripts.check_integrity --since '{since}'` | Lệnh kiểm tra toàn vẹn chạy sau mỗi lượt. `{since}` được thay bằng thời điểm bắt đầu lượt. Kết quả nối vào cuối `report.md`. Lệnh trả mã khác 0 thì `run.sh` thoát với mã 4. Để trống thì bỏ qua. |
 
 Hạ tầng chạy Locust:
 
@@ -252,6 +253,16 @@ Với `write_storm` và `write_ramp`, mỗi lệnh ghi có một UUID. Locust gh
 Kết quả ở `reconcile.md` và một mục trong `report.md`.
 
 Lưu ý: không seed lại hoặc xóa dữ liệu trong lúc đang chạy kịch bản ghi, nếu không đối soát sẽ báo "mất" giả. Bước này đã thật sự xảy ra một lần khi phát triển, và cũng là bằng chứng rằng đối soát bắt được sự thiếu hụt.
+
+### Kiểm tra ghi đúng người và đúng nội dung
+
+Ngoài chuyện "có hay không", đối soát còn kiểm **ghi đúng người**. `app_reconcile.sql` xuất thêm cột `owner` (mã nhân viên sở hữu dòng trong DB). `reconcile.py` so cột này với người gửi trong `writes.jsonl`, rồi báo dòng "Ghi nhầm người" trong báo cáo. Cột `owner` không bắt buộc. Thiếu cột này thì bước kiểm tra tự bỏ qua.
+
+Sau đối soát, `run.sh` chạy `POST_CHECK_CMD`. Mặc định đó là `scripts/check_integrity.py`, chỉ đọc. Script tính lại bảng công theo ngày từ dữ liệu chấm thô rồi so từng dòng, sau đó kiểm luật của đơn (đơn chờ duyệt không có người duyệt, không ai tự duyệt đơn của mình...) và kiểm bảng chấm thô chưa từng bị sửa hay xóa. Chạy tay trên toàn bộ database:
+
+```bash
+docker compose exec api python -m scripts.check_integrity
+```
 
 ## 7. Chạy qua Cloudflare Quick Tunnel
 

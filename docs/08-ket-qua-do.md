@@ -35,6 +35,11 @@
    - Theo định luật Little, luôn có 100 request đang chờ mà mỗi giây chỉ xử lý được 230 request, thì mỗi request phải chờ trung bình 100 / 230 ≈ 0,43 giây. Vì vậy p95 khoảng 1 giây.
    - Với 50 lệnh ghi cùng lúc thì đạt (p95 390 ms).
 4. **Ghi có đúng và đủ không?** Đúng và đủ. Đối soát 74.467 lệnh ghi (46.119 ở `write_storm`, 28.348 ở `write_ramp`): mọi lệnh client được báo thành công đều có trong DB, **0 mất, 0 trùng**.
+   Kiểm tra thêm sau khi bổ sung bước kiểm tra toàn vẹn (lượt `write_storm` 100 user, 30.865 lệnh ghi):
+   - **0 ghi nhầm người**.
+   - Bảng công theo ngày tính lại từ dữ liệu chấm thô khớp 100%, trên cả 22.804 cặp nhân viên-ngày của toàn database.
+   - Dữ liệu chấm thô chưa từng bị sửa hay xóa.
+   - Mọi luật của đơn đều đúng.
 
 ## 4. Giới hạn nằm ở đâu
 

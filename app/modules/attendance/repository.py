@@ -155,3 +155,62 @@ async def latest_events(session: AsyncSession, limit: int) -> list[Row]:
         .limit(limit)
     )
     return list((await session.execute(stmt)).all())
+
+
+def _daily_check_sql(scoped: bool):
+    """Recompute attendance_daily from the raw events and compare every row with what is stored.
+
+    Scoped: only the (employee, work day) pairs that got events since :since.
+    """
+    emp_scope = ("WHERE e.employee_id IN (SELECT employee_id FROM attendance_events WHERE created_at >= :since)"
+                 if scoped else "")
+    pair_scope = "WHERE created_at >= :since" if scoped else ""
+    stored_join = "JOIN pairs p ON p.employee_id = d.employee_id AND p.wd = d.work_date" if scoped else ""
+    return text(f"""
+WITH ev AS (
+    SELECT e.employee_id, {_work_date_sql("e.event_time", "e.employee_id")} AS wd, e.event_time, e.created_at
+    FROM attendance_events e {emp_scope}
+), pairs AS (
+    SELECT DISTINCT employee_id, wd FROM ev {pair_scope}
+), agg AS (
+    SELECT ev.employee_id, ev.wd, min(ev.event_time) AS first_in, max(ev.event_time) AS last_out
+    FROM ev JOIN pairs USING (employee_id, wd) GROUP BY 1, 2
+), expected AS (
+    SELECT employee_id, wd, first_in, CASE WHEN last_out > first_in THEN last_out END AS last_out,
+           {_worked_sql("first_in", "last_out")} AS worked
+    FROM agg
+), stored AS (
+    SELECT d.* FROM attendance_daily d {stored_join}
+), cmp AS (
+    SELECT coalesce(x.employee_id, s.employee_id) AS employee_id, coalesce(x.wd, s.work_date) AS work_date,
+           (x.employee_id IS NULL OR s.employee_id IS NULL
+            OR s.first_in IS DISTINCT FROM x.first_in OR s.last_out IS DISTINCT FROM x.last_out
+            OR s.worked_minutes IS DISTINCT FROM x.worked
+            OR s.ot_minutes IS DISTINCT FROM GREATEST(0, x.worked - :standard)) AS bad
+    FROM expected x FULL JOIN stored s ON s.employee_id = x.employee_id AND s.work_date = x.wd
+)
+SELECT count(*) AS checked, count(*) FILTER (WHERE bad) AS bad,
+       (array_agg(employee_id::text || ' ' || work_date::text) FILTER (WHERE bad))[1:5] AS sample
+FROM cmp
+""")
+
+
+async def check_daily(session: AsyncSession, since: datetime | None, settings) -> Row:
+    params = _params(settings.timezone, settings)
+    if since is not None:
+        params["since"] = since
+    return (await session.execute(_daily_check_sql(since is not None), params)).one()
+
+
+async def check_events(session: AsyncSession) -> Row:
+    """Raw check-ins: duplicate keys, rows in the future, and proof the table was never updated/deleted."""
+    return (await session.execute(text("""
+        SELECT
+          (SELECT count(*) FROM (SELECT 1 FROM attendance_events GROUP BY idempotency_key
+                                 HAVING count(*) > 1) d) AS duplicate_keys,
+          (SELECT count(*) FROM attendance_events WHERE event_time > now() + interval '5 seconds') AS future_rows,
+          (SELECT n_tup_upd + n_tup_del FROM pg_stat_user_tables WHERE relname = 'attendance_events') AS updates_deletes,
+          (SELECT count(*) FROM pg_trigger WHERE tgrelid = 'attendance_events'::regclass
+                                             AND NOT tgisinternal AND tgenabled <> 'D') AS guard_triggers,
+          (SELECT count(*) FROM attendance_events) AS total
+    """))).one()

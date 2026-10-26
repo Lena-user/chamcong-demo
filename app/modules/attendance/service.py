@@ -59,3 +59,10 @@ async def live(session: AsyncSession, seconds: int, feed_size: int) -> dict:
         "per_second": [{"ts": r.ts, "events": r.events} for r in rows if r.ts is not None],
         "latest": await repository.latest_events(session, feed_size),
     }
+
+
+async def check_integrity(session: AsyncSession, since: datetime | None) -> dict:
+    """Daily rollup recomputed from raw events (all of it, or only pairs touched since `since`)."""
+    daily = await repository.check_daily(session, since, get_settings())
+    events = await repository.check_events(session)
+    return {"daily": daily, "events": events}

@@ -203,9 +203,21 @@ RECONCILE_RC=0
 if [ "$RECONCILE" = 1 ]; then
   "${PY[@]}" reconcile.py "$REL" || RECONCILE_RC=$?
 fi
+# Optional app-specific check of what was written (POST_CHECK_CMD in config.env; {since} = start of
+# the run as a DB timestamp). Its output is appended to report.md; a non-zero exit fails the run.
+POST_CHECK_RC=0
+if [ -n "${POST_CHECK_CMD:-}" ]; then
+  echo "Post-check: $POST_CHECK_CMD"
+  (cd "$ROOT" && bash -c "${POST_CHECK_CMD//\{since\}/$DB_SINCE}") >"$OUT/post_check.md" 2>&1 || POST_CHECK_RC=$?
+  { echo; cat "$OUT/post_check.md"; } >>"$OUT/report.md"
+fi
 echo "Report: $OUT/report.md"
 if [ "$RECONCILE_RC" -ne 0 ]; then
-  echo "RECONCILE FAILED: a confirmed write is missing or a key is duplicated (see $OUT/reconcile.md)" >&2
+  echo "RECONCILE FAILED: a confirmed write is missing, duplicated or owned by someone else (see $OUT/reconcile.md)" >&2
   [ "$LOCUST_RC" -eq 0 ] && exit 3
+fi
+if [ "$POST_CHECK_RC" -ne 0 ]; then
+  echo "POST-CHECK FAILED: see $OUT/post_check.md" >&2
+  [ "$LOCUST_RC" -eq 0 ] && exit 4
 fi
 exit "$LOCUST_RC"
