@@ -35,3 +35,41 @@ Báo cáo gửi leader bằng tiếng Việt. Đánh số theo 10 câu, mỗi c�
 
 ---
 ## Kết quả và review của leader
+
+### Lần 1 (2026-10-26): kết quả scout (đã soát, dùng cho docs 07)
+- Đánh giá: Đạt một phần. Đã mở được 15 URL thật. Mục 2 (ledger) và mục 7 (RPO/RTO của AWS) chưa có nguồn đọc được.
+- Nguồn đã xác minh:
+  1. Stripe idempotency (https://docs.stripe.com/api/idempotent_requests):
+     - Lưu status code và body của lần đầu, kể cả khi lần đầu trả 500.
+     - Key tối đa 255 ký tự, khuyến nghị UUIDv4, giữ ít nhất 24 giờ.
+     - **Tham số khác lần gốc thì báo lỗi.**
+     - Request trùng đang chạy song song thì không lưu kết quả.
+  2. Stripe rate limiters (https://stripe.com/blog/rate-limiters): bốn lớp.
+     - Request rate limiter: token bucket trên Redis, fail-open.
+     - Concurrent requests limiter.
+     - Fleet usage load shedder: giữ phần dành cho request quan trọng, trả 503.
+     - Worker utilization load shedder.
+  3. LMAX (https://martinfowler.com/articles/lmax.html):
+     - Logic chạy một luồng trong bộ nhớ, event sourcing, khôi phục bằng replay journal.
+     - Đạt khoảng 6 triệu order/giây trên một luồng (Nehalem 3GHz). Restart dưới 1 phút.
+  4. Transactional outbox (https://microservices.io/patterns/data/transactional-outbox.html): ghi message cùng transaction với dữ liệu, relay gửi sau, consumer phải idempotent.
+  5. Postgres:
+     - `synchronous_commit` (https://www.postgresql.org/docs/current/runtime-config-wal.html): đặt `off` thì có thể mất giao dịch đã báo commit nhưng không làm hỏng nhất quán. Đặt được riêng cho từng transaction.
+     - Replication mặc định bất đồng bộ. Muốn đồng bộ thì dùng `synchronous_standby_names` (https://www.postgresql.org/docs/current/warm-standby.html).
+     - Patroni (https://patroni.readthedocs.io/en/latest/) dùng để tự động failover qua DCS.
+  6. PgBouncer (https://www.pgbouncer.org/features.html):
+     - Ở transaction pooling không dùng được session advisory lock, `SET` và `PREPARE` ở mức SQL.
+     - asyncpg đặt `statement_cache_size=0` (https://magicstack.github.io/asyncpg/current/api/index.html).
+     - **Lưu ý: job lương dùng `pg_advisory_lock` mức session, nên phải kết nối thẳng DB và không đi qua PgBouncer transaction mode.**
+  7. Cloudflare Quick Tunnel (https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/do-more-with-tunnels/trycloudflare/): tối đa 200 request in-flight, vượt thì trả 429. Không có SSE, không có SLA, chỉ dùng để thử nghiệm.
+  8. Mặc định của WAL và checkpoint (runtime-config-wal):
+     - `max_wal_size` 1GB, `checkpoint_timeout` 5min, `checkpoint_completion_target` 0.9, `wal_compression` off.
+     - `commit_delay` 0, chỉ có tác dụng khi số transaction đang chạy ≥ `commit_siblings` (5).
+  9. Timeout (https://www.postgresql.org/docs/current/runtime-config-client.html):
+     - Mặc định là 0 (tắt).
+     - Không nên đặt trong `postgresql.conf` cho mọi session, nên đặt theo từng kết nối của app. Demo đã làm đúng như vậy.
+     - Transaction idle lâu sẽ chặn VACUUM.
+  10. AWS FSI Lens (https://docs.aws.amazon.com/wellarchitected/latest/financial-services-industry-lens/financial-services-industry-lens.html): chỉ xác nhận tài liệu có tồn tại, chưa đọc được nội dung.
+- Việc rút ra:
+  - Áp kiểm tra "cùng key nhưng tham số khác thì báo lỗi" của Stripe cho `POST /api/requests`, leader làm.
+  - Docs 07 chỉ trích những nguồn đã xác minh ở trên. Ledger và RPO/RTO của AWS thì trình bày như kiến thức chung, không gắn nguồn.

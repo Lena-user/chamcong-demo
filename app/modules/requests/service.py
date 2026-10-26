@@ -36,7 +36,16 @@ async def create_request(
     if existing is None or existing.employee_id != user.id:
         # The key belongs to someone else: never leak or reuse their request.
         raise HTTPException(status.HTTP_409_CONFLICT, "Idempotency key already used")
+    if _differs(existing, body):
+        # Same key with a different payload is a client bug, not a retry (Stripe rejects it too).
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY, "Idempotency key reused with different parameters"
+        )
     return existing, False
+
+
+def _differs(existing: Request, body: RequestCreate) -> bool:
+    return any(getattr(existing, field) != value for field, value in body.model_dump().items())
 
 
 async def my_requests(session: AsyncSession, user: AuthUser, params: PageParams):

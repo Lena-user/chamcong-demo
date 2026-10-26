@@ -72,3 +72,14 @@ Sếp muốn thử ghi thật dồn dập: khoảng 100 request ghi cùng lúc, 
 
 ---
 ## Kết quả và review của leader
+
+### Lần 1 (2026-10-26)
+- Báo cáo của agent (tóm tắt):
+  - Đã sửa bug login của locustfile: steady 20 user cho 0% lỗi, p95 320 ms, mọi endpoint đều có request.
+  - `write_storm` 100 user: 1258 lệnh ghi, **0 mất, 0 trùng**. p95 1100 ms. api 229%/200% CPU, **locust 108%/100%**.
+  - `write_ramp`: ở 50 user p95 360 ms, 188 RPS. Ở 100 user p95 1200 ms, 198 RPS, shape tự dừng tại đây. 14.933 lệnh ghi, 0 mất.
+- Đánh giá: Đạt.
+- Nhận xét:
+  - Lượt đầu bị leader seed lại DB giữa chừng và đối soát bắt được 6887 "mất". Như vậy chính đối soát đã được kiểm chứng là hoạt động.
+  - Máy bắn tải kịch 1 CPU cùng lúc với api, nên chưa kết luận được điểm nghẽn thật. TASK-010 sẽ cho locust chạy nhiều process.
+- Bước tiếp theo: TASK-010.

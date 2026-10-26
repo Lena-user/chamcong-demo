@@ -185,6 +185,18 @@ async def test_create_request_same_key_one_row(client, make_employee, headers_fo
     assert bad.status_code == 422
 
 
+async def test_create_request_same_key_different_body_422(client, make_employee, headers_for):
+    emp = await make_employee()
+    h = {**headers_for(emp), "Idempotency-Key": str(uuid.uuid4())}
+    assert (await client.post("/api/requests", json=OT_BODY, headers=h)).status_code == 201
+    assert (await client.post("/api/requests", json=OT_BODY, headers=h)).status_code == 200
+    changed = {**OT_BODY, "reason": "something else"}
+    r = await client.post("/api/requests", json=changed, headers=h)
+    assert r.status_code == 422
+    async with SessionLocal() as s:
+        assert await s.scalar(select(func.count()).select_from(Request)) == 1
+
+
 async def test_approve_replay_same_manager_200_other_409(client, make_employee, make_request, headers_for):
     owner, mgr, mgr2 = await make_employee(), await make_employee("manager"), await make_employee("manager")
     req = await make_request(owner)

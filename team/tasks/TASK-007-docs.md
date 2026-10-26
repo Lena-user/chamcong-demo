@@ -1,7 +1,7 @@
 # TASK-007: README và docs hướng dẫn dùng chung
 
 - **Giao cho:** coder (viết bản nháp), leader điền số liệu đo thật
-- **Trạng thái:** Mới
+- **Trạng thái:** Đang làm
 - **Liên quan:** TASK-001 đến TASK-006
 
 ## Mục tiêu
@@ -50,15 +50,37 @@ Sếp sẽ dùng lại bộ docs này cho một dự án khác lớn hơn, chưa
    - Các tình huống sự cố mẫu, mỗi tình huống ghi "làm gì, theo thứ tự nào": lỡ xóa dữ liệu, hỏng volume, máy hỏng.
    - Ghi chú: tuyệt đối không tắt `fsync` hay `synchronous_commit` để lấy hiệu năng.
    - Thêm vào `docs/04-thiet-ke-dong-thoi.md` mục "Chống mất request": idempotency key cho mọi lệnh ghi, 503 kèm Retry-After, retry ở client, outbox, duyệt đơn idempotent, cách đối soát sau load test.
-7. `docs/05-kich-ban-demo.md`:
+7. `docs/07-kien-truc-va-thiet-ke.md`:
+   - Sơ đồ, gồm luồng một lệnh ghi đi qua các lớp.
+   - Các quyết định thiết kế viết theo dạng ADR ngắn (bối cảnh, quyết định, đánh đổi). Nội dung gồm:
+     - Chia worker và ngân sách kết nối.
+     - Xác thực: JWT 12 giờ, cache 30 giây, argon2id theo mức tối thiểu của OWASP (đo được 150 ms → 38 ms mỗi lần verify).
+     - Timeout fail-fast.
+     - 503/429 kèm `Retry-After`.
+     - Idempotency theo kiểu Stripe, gồm cả việc báo lỗi khi cùng key mà khác tham số.
+     - Rate limit.
+     - Đồng hồ DB.
+     - Ghi đồng bộ vào DB rồi mới trả lời (không dùng hàng đợi Redis trước), và lý do.
+     - Hai lớp sao lưu.
+     - Tinh chỉnh WAL.
+   - Mục "Học từ ngân hàng và sàn giao dịch": dùng **đúng các nguồn đã xác minh** trong `team/tasks/TASK-012-tra-cuu-kien-truc.md` (mục "Kết quả"), có trích URL.
+   - Mục "Đường lên production" (không làm trong demo):
+     - Replica và Patroni.
+     - PgBouncer. Lưu ý advisory lock mức session không chạy được ở transaction mode.
+     - Outbox nếu cần gửi thông báo.
+     - Concurrent limiter và load shedder kiểu Stripe.
+     - Multi-AZ.
+8. `docs/05-kich-ban-demo.md`:
    - Kịch bản buổi demo cho người hướng dẫn, khoảng 15 phút: trình bày gì theo thứ tự nào, lệnh nào, mở file nào, nói gì khi chỉ vào biểu đồ điểm nghẽn.
    - Câu hỏi thầy có thể hỏi kèm gợi ý trả lời. Ví dụ: vì sao không đạt khi đăng nhập ồ ạt, muốn chịu 1000 user thì làm gì, vì sao tách bảng nhạy cảm.
 
 ## Tiêu chí nghiệm thu
-- [ ] Đủ 7 file, viết bằng tiếng Việt có dấu, câu ngắn rõ ràng. Không dùng emoji làm đề mục.
+- [ ] Đủ 8 file, viết bằng tiếng Việt có dấu, câu ngắn rõ ràng. Không dùng emoji làm đề mục.
 - [ ] Mọi lệnh, biến và đường dẫn trong docs đều có thật trong repo. Leader sẽ chạy thử ngẫu nhiên.
 - [ ] Mẫu locustfile tối thiểu trong docs 03 qua `python -m py_compile` (chạy trong image locust).
 - [ ] Không lộ mật khẩu thật trong `.env`. Docs chỉ ghi "đặt `SEED_PASSWORD` trong `.env`".
+
+- Lưu ý vận hành phải ghi rõ trong docs: `.env` của máy demo đang đặt `RATE_LIMIT_ENABLED=false` để chạy load test. Khi demo public qua tunnel thì bật lại `true`, rồi chạy `docker compose up -d --no-deps api`.
 
 ## Không được đụng
 - Code trong `app/`, `loadtest/`, `tests/`, `scripts/`, và `team/`. Task này chỉ tạo `README.md` và `docs/`.

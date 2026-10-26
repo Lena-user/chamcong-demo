@@ -1,7 +1,7 @@
 # TASK-009: Kiểm tra toàn bộ trước khi đo tải
 
 - **Giao cho:** tester
-- **Trạng thái:** Mới
+- **Trạng thái:** Đang làm
 - **Liên quan:** TASK-001, 003, 005, 006, 008
 
 ## Mục tiêu
