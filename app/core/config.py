@@ -38,6 +38,7 @@ class Settings(BaseSettings):
     db_pool_size: int = 10
     db_max_overflow: int = 5
     db_pool_timeout: int = 10
+    db_pool_pre_ping: bool = True
     worker_db_pool_size: int = 2
     arq_max_jobs: int = 2
     uvicorn_workers: int = 3

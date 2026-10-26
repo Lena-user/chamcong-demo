@@ -35,3 +35,10 @@ Báo cáo theo format của tester. Với từng bước: pass/fail, lệnh đã
 
 ---
 ## Kết quả và review của leader
+
+### Lần 1 (2026-10-26)
+- Báo cáo của tester (tóm tắt):
+  - Bước 1–6 PASS: stack chạy, seed xong, pytest 92 passed ×3, smoke test đủ mã trạng thái, drill OVERALL PASS 6/6, steady 20 giây có đủ file và mục.
+  - Bước 7 bỏ qua vì không có thư viện Playwright.
+- Đánh giá: Đạt.
+- Nhận xét: leader chụp màn đăng nhập ở 360px bằng chrome-headless-shell có sẵn trong `~/.cache/ms-playwright` (cờ `--screenshot`), hiển thị ổn. Màn sau khi đăng nhập cần điều khiển bằng JS nên chưa chụp, ghi nhận là hạn chế.

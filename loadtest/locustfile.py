@@ -56,7 +56,7 @@ class BaseUser(FastHttpUser):
     code = ""
 
     def login(self):
-        code = self.code = self.codes[next(self.seq) % len(self.codes)]
+        code = self.code = shapes.pick_code(self.codes, self.seq, self.environment)
         with self.client.post(
             "/api/auth/login", json={"code": code, "password": PASSWORD},
             name="/api/auth/login", catch_response=True,
@@ -220,7 +220,7 @@ class WriterUser(BaseUser):
     def login(self):
         """Log in outside the request stats: bcrypt logins at spawn time are slow and would
         otherwise dominate p95 and trigger a false "break". They are counted as EVENT rows."""
-        code = self.code = self.codes[next(self.seq) % len(self.codes)]
+        code = self.code = shapes.pick_code(self.codes, self.seq, self.environment)
         t0 = time.perf_counter()
         token = None
         try:

@@ -88,3 +88,16 @@ Sếp sẽ dùng lại bộ docs này cho một dự án khác lớn hơn, chưa
 
 ---
 ## Kết quả và review của leader
+
+### Lần 1 (2026-10-26)
+- Báo cáo của agent (tóm tắt): xong README và 7 file docs. Lệnh và biến đã đối chiếu với repo, mẫu locustfile qua `py_compile`. Các chỗ cần số liệu để placeholder `SO_LIEU`.
+- Đánh giá: Đạt bản nháp.
+- Nhận xét:
+  - Agent lỡ chạy một heredoc không có dấu nháy, nên đoạn văn bị chạy như lệnh. Leader đã kiểm `git status`/`git diff` và thư mục home: không có file lạ, mọi thay đổi trong diff đều là của leader.
+  - Docs viết trước các thay đổi ở TASK-010, gồm `LOCUST_PROCESSES`, giới hạn container qua env, `DB_POOL_PRE_PING` và `PG_COMMIT_DELAY`. Leader sẽ cập nhật và điền số liệu.
+- Bước tiếp theo: leader điền số liệu sau khi chạy bộ đo chính thức.
+
+### Lần 2 (2026-10-26, leader)
+- Đã điền mọi chỗ `SO_LIEU` bằng số đo chính thức. Viết thêm `docs/08-ket-qua-do.md` và chép báo cáo gốc vào `docs/ket-qua/`.
+- Bổ sung vào docs các biến mới: `DB_POOL_PRE_PING`, giới hạn container qua env, `PG_*`, `LOCUST_PROCESSES`.
+- `DATABASE_URL` và `TEST_DATABASE_URL` giờ được compose tự ghép từ `POSTGRES_*`, nên người mới chỉ cần sửa 3 giá trị trong `.env`.

@@ -20,7 +20,8 @@ def make_engine(url: str, pool_size: int | None = None, max_overflow: int | None
         pool_size=s.db_pool_size if pool_size is None else pool_size,
         max_overflow=s.db_max_overflow if max_overflow is None else max_overflow,
         pool_timeout=s.db_pool_timeout,
-        pool_pre_ping=True,
+        # With asyncpg each ping is BEGIN + ';' + ROLLBACK, i.e. 3 extra round trips per checkout.
+        pool_pre_ping=s.db_pool_pre_ping,
         connect_args={"server_settings": server_settings},
     )
 

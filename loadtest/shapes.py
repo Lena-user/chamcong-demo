@@ -67,6 +67,15 @@ def user_codes(range_var, default):
     return [fmt.format(n) for n in code_range(range_var, default)]
 
 
+def pick_code(codes, seq, environment):
+    """Next login code for a new user, interleaved across Locust processes so that two
+    processes never log in as the same account (which would add fake row-lock contention)."""
+    runner = getattr(environment, "runner", None)
+    worker = getattr(runner, "worker_index", 0) or 0
+    procs = max(1, env_int("LOCUST_PROCESSES", 1))
+    return codes[(next(seq) * procs + worker) % len(codes)]
+
+
 def password():
     return os.environ.get("LOADTEST_PASSWORD", "")
 

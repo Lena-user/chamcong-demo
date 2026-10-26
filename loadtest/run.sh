@@ -165,8 +165,11 @@ echo "Scenario: $SCENARIO  Host: $HOST  Output: $OUT"
 # Load shapes (see shapes.py) define users and duration, so no -u/-r/-t here.
 # --exit-code-on-error 0: failed requests are reported, not fatal to this script.
 set +e
+# One Locust process tops out around one CPU; fork more so the load generator is not the bottleneck.
+PROC_ARGS=()
+if [ "${LOCUST_PROCESSES:-1}" -gt 1 ]; then PROC_ARGS=(--processes "$LOCUST_PROCESSES"); fi
 "${COMPOSE[@]}" run --rm -T "${ENV_ARGS[@]}" "$LOCUST_SERVICE" \
-  -f locustfile.py --headless --host "$HOST" \
+  -f locustfile.py --headless --host "$HOST" "${PROC_ARGS[@]}" \
   --csv "$REL/locust" --csv-full-history --html "$REL/locust.html" \
   --exit-code-on-error 0
 LOCUST_RC=$?

@@ -1,8 +1,9 @@
 name: chamcong
 
 x-app-env: &app-env
-  DATABASE_URL: ${DATABASE_URL}
-  TEST_DATABASE_URL: ${TEST_DATABASE_URL}
+  # Built from POSTGRES_* unless overridden in .env, so the DB password lives in one place.
+  DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}}
+  TEST_DATABASE_URL: ${TEST_DATABASE_URL:-postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/chamcong_test}
   REDIS_URL: ${REDIS_URL}
   JWT_SECRET: ${JWT_SECRET}
   SEED_PASSWORD: ${SEED_PASSWORD}
@@ -29,6 +30,7 @@ x-app-env: &app-env
   DB_POOL_SIZE: ${DB_POOL_SIZE:-10}
   DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-5}
   DB_POOL_TIMEOUT: ${DB_POOL_TIMEOUT:-10}
+  DB_POOL_PRE_PING: ${DB_POOL_PRE_PING:-true}
   WORKER_DB_POOL_SIZE: ${WORKER_DB_POOL_SIZE:-2}
   ARQ_MAX_JOBS: ${ARQ_MAX_JOBS:-2}
   UVICORN_WORKERS: ${UVICORN_WORKERS:-3}
@@ -68,6 +70,12 @@ services:
       - wal_compression=on
       - -c
       - random_page_cost=1.1
+      # Group commit: wait up to PG_COMMIT_DELAY microseconds so concurrent commits share one
+      # WAL flush. Durability is unchanged (each commit still waits for its flush).
+      - -c
+      - commit_delay=${PG_COMMIT_DELAY:-0}
+      - -c
+      - commit_siblings=${PG_COMMIT_SIBLINGS:-5}
       # Observability for load tests: per-query stats and I/O timing.
       - -c
       - shared_preload_libraries=pg_stat_statements
@@ -104,7 +112,7 @@ services:
       retries: 10
     deploy:
       resources:
-        limits: { cpus: "1", memory: 2G }
+        limits: { cpus: "${DB_CPUS:-1}", memory: "${DB_MEMORY:-2G}" }
 
   backup:
     image: postgres:16
@@ -128,7 +136,7 @@ services:
     restart: unless-stopped
     deploy:
       resources:
-        limits: { cpus: "0.5", memory: 256M }
+        limits: { cpus: "${BACKUP_CPUS:-0.5}", memory: "${BACKUP_MEMORY:-256M}" }
 
   redis:
     image: redis:7
@@ -143,7 +151,7 @@ services:
       retries: 10
     deploy:
       resources:
-        limits: { cpus: "0.5", memory: 256M }
+        limits: { cpus: "${REDIS_CPUS:-0.5}", memory: "${REDIS_MEMORY:-256M}" }
 
   api:
     build: .
@@ -162,7 +170,7 @@ services:
       start_period: 20s
     deploy:
       resources:
-        limits: { cpus: "2", memory: 2G }
+        limits: { cpus: "${API_CPUS:-2}", memory: "${API_MEMORY:-2G}" }
 
   worker:
     build: .
@@ -175,7 +183,7 @@ services:
       api: { condition: service_healthy }
     deploy:
       resources:
-        limits: { cpus: "1", memory: 512M }
+        limits: { cpus: "${WORKER_CPUS:-1}", memory: "${WORKER_MEMORY:-512M}" }
 
   tunnel:
     image: cloudflare/cloudflared
@@ -193,7 +201,7 @@ services:
       SCENARIO: ${SCENARIO:-steady}
       LOADTEST_PASSWORD: ${SEED_PASSWORD}
     depends_on: { api: { condition: service_healthy } }
-    deploy: { resources: { limits: { cpus: "1", memory: 1G } } }
+    deploy: { resources: { limits: { cpus: "${LOCUST_CPUS:-2}", memory: 1G } } }
 
 volumes:
   pgdata:
