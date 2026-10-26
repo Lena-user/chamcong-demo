@@ -1,0 +1,24 @@
+{
+  "scenario": "ramp",
+  "host": "http://api:8000",
+  "started_at": "SAMPLE (fake data)",
+  "git_commit": "0000000",
+  "limits": {
+    "api": {
+      "cpu_limit": 2.0,
+      "mem_limit_bytes": 2147483648
+    },
+    "db": {
+      "cpu_limit": 1.0,
+      "mem_limit_bytes": 2147483648
+    },
+    "worker": {
+      "cpu_limit": 1.0,
+      "mem_limit_bytes": 536870912
+    },
+    "redis": {
+      "cpu_limit": 0.5,
+      "mem_limit_bytes": 268435456
+    }
+  }
+}

@@ -1,0 +1,61 @@
+import uuid
+from datetime import date, datetime, time
+
+from sqlalchemy import (
+    BigInteger, Boolean, CheckConstraint, Date, DateTime, ForeignKey, Identity, Index, Integer,
+    String, Time, UniqueConstraint, func,
+)
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import Mapped, mapped_column
+
+from app.core.models_base import Base
+
+
+class Shift(Base):
+    __tablename__ = "shifts"
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    name: Mapped[str] = mapped_column(String(50), unique=True)
+    start_time: Mapped[time] = mapped_column(Time)
+    end_time: Mapped[time] = mapped_column(Time)
+    crosses_midnight: Mapped[bool] = mapped_column(Boolean, server_default="false")
+
+
+class Schedule(Base):
+    __tablename__ = "schedules"
+    __table_args__ = (UniqueConstraint("employee_id", "work_date", name="uq_schedules_emp_date"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    employee_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("employees.id", ondelete="CASCADE"))
+    work_date: Mapped[date] = mapped_column(Date)
+    shift_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("shifts.id"))
+
+
+class AttendanceEvent(Base):
+    """Append-only (NV-5): never UPDATE or DELETE rows from application code."""
+
+    __tablename__ = "attendance_events"
+    __table_args__ = (Index("ix_attendance_events_emp_time", "employee_id", "event_time"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    employee_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("employees.id", ondelete="CASCADE"))
+    event_time: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    source: Mapped[str] = mapped_column(String(20))
+    idempotency_key: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), unique=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class AttendanceDaily(Base):
+    __tablename__ = "attendance_daily"
+    __table_args__ = (
+        UniqueConstraint("employee_id", "work_date", name="uq_attendance_daily_emp_date"),
+        CheckConstraint("worked_minutes >= 0 AND ot_minutes >= 0", name="ck_daily_minutes"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    employee_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("employees.id", ondelete="CASCADE"))
+    work_date: Mapped[date] = mapped_column(Date)
+    first_in: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_out: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    worked_minutes: Mapped[int] = mapped_column(Integer, server_default="0")
+    ot_minutes: Mapped[int] = mapped_column(Integer, server_default="0")
