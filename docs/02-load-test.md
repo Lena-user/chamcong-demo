@@ -299,3 +299,4 @@ docker compose --profile tunnel rm -f tunnel
 - Seed lại trước khi đo (`docker compose exec api python -m scripts.seed`) để dữ liệu ở trạng thái giống nhau. Riêng `steady` và `burst`, các quản lý duyệt dần đơn chờ, nên sau nhiều lần chạy số đơn pending giảm và bài đo thay đổi.
 - Kiểm tra `meta.json`: `rate_limit_enabled` phải là `false`, `host_cpus` đủ cho tổng giới hạn CPU, và dòng `locust` trong bảng CPU không được chạm trần.
 - Với số cuối dùng để báo cáo: ghi lại commit git và cấu hình (đã có trong `meta.json`).
+- Đừng rút ngắn `steady` xuống dưới khoảng 3 phút để lấy số báo cáo. Mỗi user đăng nhập một lần lúc bắt đầu. 100 lần băm mật khẩu dồn trong vài giây đầu làm api kịch CPU, nên các request khác trong lúc đó cũng chậm theo. Đo thật: chạy 40 giây thì p95 là 650 ms, chạy 3 phút thì p95 là 16 ms. Thời lượng đủ dài thì giai đoạn khởi động chỉ chiếm phần nhỏ, không kéo p95 lên.
